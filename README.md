@@ -22,7 +22,7 @@ Install from the package/repo according to your Pi package workflow, then verify
 
 Expected loaded commands/tools:
 
-- Slash command: `/workflow status|next|progress|doctor|evidence|why|review-prompt|bundle|dirty|note|gate|plan|toggle|help`
+- Slash command: `/workflow status|next|progress|doctor|evidence|why|review-prompt|bundle|dirty|note|gate|plan|shape-plan|new-plan|toggle|help`
 - Agent tools: `workflow_watch`, `workflow_next`, `workflow_init`, `workflow_approve_dirty_overlap`, `workflow_gate`, `workflow_progress`, `workflow_export_evidence`, `workflow_note`, `workflow_review_packet`, `workflow_why`, `workflow_import_acceptance`
 
 If `/workflow help` is unavailable, restart Pi, confirm the package is in Pi's extension/package config, and check that the installed package includes `index.ts` plus the `pi.extensions` entry in `package.json`.
@@ -31,25 +31,25 @@ The watcher can be noisy if it is active for casual sessions. Use `/workflow tog
 
 ## Quickstart: create a workflow
 
-The easiest public entry ramp is the built-in command registered by this plugin:
-
-```text
-/shape-plan <goal>
-```
-
-Equivalent namespaced form:
+The easiest public entry ramp is the built-in namespaced command registered by this plugin:
 
 ```text
 /workflow shape-plan <goal>
 ```
 
+Alias:
+
+```text
+/workflow new-plan <goal>
+```
+
 Example:
 
 ```text
-/shape-plan Add GitHub issue triage automation
+/workflow shape-plan Add GitHub issue triage automation
 ```
 
-The built-in shape-plan command inspects the repo, reads or initializes workflow context when the `workflow_*` tools are available, writes a plan under `.pi/plans/<slug>.md`, records `workflow_note PLAN_CREATED <path>` when possible, and tells the user the next implementation command. It is opinionated by default: `grill-me` is conditional, but non-trivial plans require `scout`/`reviewer`/`oracle` passes from the public `pi-subagents` extension (`pi install pi-subagents`). If `pi-subagents` is unavailable, the prompt stops after repo inspection and asks for explicit approval before writing a degraded self-reviewed plan.
+The built-in `/workflow shape-plan` / `/workflow new-plan` command inspects the repo, reads or initializes workflow context when the `workflow_*` tools are available, writes a plan under `.pi/plans/<slug>.md`, records `workflow_note PLAN_CREATED <path>` when possible, and tells the user the next implementation command. It is opinionated by default: `grill-me` is conditional, but non-trivial plans require `scout`/`reviewer`/`oracle` passes from the public `pi-subagents` extension (`pi install pi-subagents`). If `pi-subagents` is unavailable, the prompt stops after repo inspection and asks for explicit approval before writing a degraded self-reviewed plan.
 
 After a plan exists, use:
 

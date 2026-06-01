@@ -10,18 +10,9 @@ function shapePlanPrompt(goal: string): string {
 export function sendShapePlanRequest(pi: ExtensionAPI, goal: string): boolean {
   const request = goal.trim();
   if (!request) {
-    pi.sendMessage({ customType: "workflow-watcher", display: true, content: "usage: /shape-plan <goal>" });
+    pi.sendMessage({ customType: "workflow-watcher", display: true, content: "usage: /workflow shape-plan <goal>\nalias: /workflow new-plan <goal>" });
     return false;
   }
   pi.sendUserMessage(shapePlanPrompt(request));
   return true;
-}
-
-export function registerShapePlanCommand(pi: ExtensionAPI) {
-  pi.registerCommand("shape-plan", {
-    description: "Shape a rough goal into a workflow-ready implementation plan using workflow watcher + pi-subagents",
-    async handler(args) {
-      sendShapePlanRequest(pi, args);
-    },
-  });
 }
