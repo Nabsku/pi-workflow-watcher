@@ -109,6 +109,9 @@ export function listPlans(root: string, contract: WorkflowContract | null, findi
   const dir = safeRepoLocalPath(root, contract?.artifacts?.plansDir, ".pi/plans", findings, "artifacts.plansDir");
   if (!existsSync(dir)) return [];
   return readdirSync(dir).filter((name) => name.endsWith(".md") || name.endsWith(".json"))
-    .map((name) => join(dir, name)).filter((path) => statSync(path).isFile()).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+    .map((name) => join(dir, name)).filter((path) => statSync(path).isFile()).sort((a, b) => {
+      const mtimeDelta = statSync(b).mtimeMs - statSync(a).mtimeMs;
+      return mtimeDelta || b.localeCompare(a);
+    })
     .slice(0, 8).map((path) => path.slice(root.length + 1));
 }
