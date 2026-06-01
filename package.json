@@ -32,7 +32,8 @@
     "CHANGELOG.md",
     "LICENSE",
     "schemas/",
-    "examples/"
+    "examples/",
+    "prompts/"
   ],
   "engines": {
     "node": ">=20"

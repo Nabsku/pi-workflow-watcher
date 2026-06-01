@@ -29,6 +29,40 @@ If `/workflow help` is unavailable, restart Pi, confirm the package is in Pi's e
 
 The watcher can be noisy if it is active for casual sessions. Use `/workflow toggle off` in a repo to disable automatic startup nudges, remove TUI status/widget surfaces, and disable hook guardrails for that repo. Use `/workflow toggle on` to re-enable them. The toggle is stored in `.pi/workflow-watcher.json`.
 
+## Quickstart: create a workflow
+
+The easiest public entry ramp is the starter prompt in `prompts/shape-plan.md`.
+
+Install or copy it into your Pi prompt directory:
+
+```bash
+mkdir -p ~/.pi/agent/prompts
+cp ~/.pi/agent/git/github.com/Nabsku/pi-workflow-watcher/prompts/shape-plan.md ~/.pi/agent/prompts/shape-plan.md
+```
+
+Then, inside a repo:
+
+```text
+/shape-plan <goal>
+```
+
+Example:
+
+```text
+/shape-plan Add GitHub issue triage automation
+```
+
+The starter prompt inspects the repo, reads or initializes workflow context when the `workflow_*` tools are available, writes a plan under `.pi/plans/<slug>.md`, records `workflow_note PLAN_CREATED <path>` when possible, and tells the user the next implementation command. It is intentionally portable: optional helpers such as `grill-me`, subagents, reviewer, and oracle are conditional, not required.
+
+After a plan exists, use:
+
+```text
+/workflow plan .pi/plans/<slug>.md
+/workflow progress
+```
+
+This package only ships the starter template. You can replace it with an organization-specific `/shape-plan` prompt while keeping the plugin as the deterministic workflow/evidence substrate.
+
 ## Publishing and schema caveat
 
 The canonical schema for this package is `schemas/pi-workflows.schema.json` in this repository/package. Existing repos may have older `.pi/workflows.json` files from pre-schema adoption or from local starter copies. Treat `$schema` as an editor/validation aid; `/workflow doctor` and the runtime validator are authoritative for current package behavior. When adopting the schema, copy one example to `.pi/workflows.json`, verify every command against the repo, and keep artifact paths repo-local.

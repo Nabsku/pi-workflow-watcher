@@ -165,6 +165,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(readme.includes("Manual notes vs trusted evidence"), "README should include manual-vs-trusted recipe");
   assert(readme.includes("/workflow help"), "README should mention workflow help");
   assert(readme.includes("/workflow toggle"), "README should document watcher toggle");
+  assert(readme.includes("prompts/shape-plan.md") && readme.includes("/shape-plan <goal>"), "README should document the public shape-plan starter prompt");
   assert(readme.includes("Ownership paths fail closed"), "README should document ownership path fail-closed behavior");
   assert(readme.includes("JSONL ledger") && readme.includes("redacts"), "README should document JSONL ledger privacy/sanitization");
   assert(readme.includes("Schema and examples") && readme.includes("Release readiness checklist"), "README should document schema/examples and release readiness");
@@ -172,6 +173,19 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(readme.includes("workflow_export_evidence") && readme.includes("/workflow bundle"), "README should document evidence bundle export");
   assert(readme.includes("workflow_progress") && readme.includes("/workflow progress"), "README should document progress summary");
   assert(readme.includes("Troubleshooting matrix") && readme.includes("canonical schema"), "README should document troubleshooting and canonical schema caveat");
+}
+
+{
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert(pkg.files?.includes("prompts/"), "package files should include public prompt starters");
+  const prompt = readFileSync(new URL("../prompts/shape-plan.md", import.meta.url), "utf8");
+  assert(prompt.includes("description: Shape a rough idea into a workflow-ready implementation plan"), "shape-plan starter should have public frontmatter");
+  assert(prompt.includes("If a `grill-me` skill or equivalent questioning workflow is available"), "shape-plan starter should make grill-me conditional");
+  assert(!prompt.includes("Yannick"), "shape-plan starter must not mention private user context");
+  assert(!prompt.includes("openai-codex/gpt-5.5"), "shape-plan starter should not pin a private/default model");
+  assert(!prompt.includes("~/.agents") && !prompt.includes("~/.pi/agent/prompts"), "shape-plan starter should not depend on private local paths");
+  assert(prompt.includes("workflow_init") && prompt.includes("workflow_note") && prompt.includes("workflow_progress"), "shape-plan starter should integrate with public workflow tools");
+  assert(prompt.includes("If subagents are available") && prompt.includes("If reviewer/oracle roles are unavailable"), "shape-plan starter should degrade when optional subagents are missing");
 }
 
 {
