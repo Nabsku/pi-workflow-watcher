@@ -33,7 +33,7 @@ export function registerWorkflowCommand(pi: ExtensionAPI) {
         return;
       }
       if (sub === "help") {
-        send(formatHelp(), { root, commands: ["status", "next", "progress", "doctor", "evidence", "why", "review-prompt", "bundle", "dirty", "note", "gate", "plan", "toggle", "help"] });
+        send(formatHelp(), { root, commands: ["status", "next", "progress", "doctor", "evidence", "why", "review-prompt", "bundle", "dirty", "note", "gate", "plan", "shape-plan", "new-plan", "toggle", "help"] });
         return;
       }
       if (sub === "toggle") {

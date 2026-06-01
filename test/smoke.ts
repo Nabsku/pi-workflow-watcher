@@ -140,6 +140,8 @@ function markLastReviewTrusted(root: string, source: "reviewer_tool" | "oracle_t
 for (const name of ["workflow_watch", "workflow_next", "workflow_init", "workflow_approve_dirty_overlap", "workflow_gate", "workflow_progress", "workflow_export_evidence", "workflow_note", "workflow_import_acceptance", "workflow_review_packet", "workflow_why"]) tool(name);
 assert(commands.workflow, "workflow slash command not registered");
 assert(!commands["shape-plan"], "shape-plan should not be registered as a top-level slash command");
+assert(!commands["new-plan"], "new-plan should not be registered as a top-level slash command");
+assert(Object.keys(commands).every((name) => name === "workflow"), "plan creation commands must stay under the workflow namespace");
 assert(commands.workflow.description?.includes("help"), "workflow slash command description should mention help");
 const workflowCompletions = commands.workflow.getArgumentCompletions?.("h") as Array<{ value?: string }> | undefined;
 assert(workflowCompletions?.some((item) => item.value === "help"), "workflow slash command completions should include help");
@@ -174,7 +176,9 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(readme.includes("Manual notes vs trusted evidence"), "README should include manual-vs-trusted recipe");
   assert(readme.includes("/workflow help"), "README should mention workflow help");
   assert(readme.includes("/workflow toggle"), "README should document watcher toggle");
-  assert(readme.includes("prompts/shape-plan.md") && readme.includes("/workflow shape-plan <goal>") && readme.includes("/workflow new-plan <goal>") && !readme.includes("/shape-plan <goal>"), "README should document only workflow namespaced plan commands");
+  assert(readme.includes("prompts/shape-plan.md") && readme.includes("/workflow shape-plan <goal>") && readme.includes("/workflow new-plan <goal>"), "README should document workflow namespaced plan commands");
+  assert(!/`?\/shape-plan(?:\s|`|$)/.test(readme), "README should not document a top-level shape-plan command");
+  assert(!/`?\/new-plan(?:\s|`|$)/.test(readme), "README should not document a top-level new-plan command");
   assert(!readme.includes("cp ~/.pi/agent/git/github.com/Nabsku/pi-workflow-watcher/prompts/shape-plan.md ~/.pi/agent/prompts/shape-plan.md"), "README should not require copying shape-plan into private prompt templates");
   assert(readme.includes("Ownership paths fail closed"), "README should document ownership path fail-closed behavior");
   assert(readme.includes("JSONL ledger") && readme.includes("redacts"), "README should document JSONL ledger privacy/sanitization");
@@ -236,12 +240,17 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(content.includes("/workflow gate beforeCommit --dry-run"), "/workflow help should include gate dry-run example");
   assert(content.includes("/workflow shape-plan Add GitHub issue triage automation"), "/workflow help should include shape-plan example");
   assert(content.includes("/workflow new-plan Add GitHub issue triage automation"), "/workflow help should include new-plan example");
+  assert(!/`?\/shape-plan(?:\s|`|$)/.test(content), "/workflow help should not document a top-level shape-plan command");
+  assert(!/`?\/new-plan(?:\s|`|$)/.test(content), "/workflow help should not document a top-level new-plan command");
+  const helpDetails = messages[0]?.details as { commands?: string[] } | undefined;
+  assert(helpDetails?.commands?.includes("shape-plan") && helpDetails.commands.includes("new-plan"), "/workflow help details should include namespaced plan commands");
   assert(content.includes("Trusted evidence warning"), "/workflow help should include trusted evidence warning");
   assert(content.includes("Manual notes are recorded context, not trusted approval."), "/workflow help should warn manual notes do not unlock commits");
 }
 
 {
   userMessages.length = 0;
+  messages.length = 0;
   await commands.workflow.handler("shape-plan Add GitHub issue triage automation", { cwd: repo() });
   const sent = String(userMessages[0] ?? "");
   assert(sent.includes("Turn the user's rough request into an executable implementation plan"), "/workflow shape-plan should send the embedded shape-plan instructions as a user message");
@@ -251,6 +260,18 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   userMessages.length = 0;
   await commands.workflow.handler("new-plan Add GitHub issue triage automation", { cwd: repo() });
   assert(String(userMessages[0] ?? "").includes("Requests: Add GitHub issue triage automation"), "/workflow new-plan should delegate to the same built-in prompt");
+
+  userMessages.length = 0;
+  messages.length = 0;
+  await commands.workflow.handler("shape-plan", { cwd: repo() });
+  assert(userMessages.length === 0, "/workflow shape-plan without a goal should not send a user message");
+  assert(messages[0]?.content.includes("usage: /workflow shape-plan <goal>"), "/workflow shape-plan without a goal should show namespaced usage");
+
+  userMessages.length = 0;
+  messages.length = 0;
+  await commands.workflow.handler("new-plan", { cwd: repo() });
+  assert(userMessages.length === 0, "/workflow new-plan without a goal should not send a user message");
+  assert(messages[0]?.content.includes("alias: /workflow new-plan <goal>"), "/workflow new-plan without a goal should show namespaced alias usage");
 }
 
 {
