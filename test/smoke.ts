@@ -178,6 +178,8 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 {
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert(pkg.files?.includes("prompts/"), "package files should include public prompt starters");
+  assert(pkg.peerDependencies?.["pi-subagents"] === "^0.27.0", "package should declare pi-subagents as the public subagent dependency");
+  assert(pkg.devDependencies?.["pi-subagents"] === "^0.27.0", "package should install pi-subagents in dev for dependency verification");
   const prompt = readFileSync(new URL("../prompts/shape-plan.md", import.meta.url), "utf8");
   assert(prompt.includes("description: Shape a rough idea into a workflow-ready implementation plan"), "shape-plan starter should have public frontmatter");
   assert(prompt.includes("If a `grill-me` skill or equivalent questioning workflow is available"), "shape-plan starter should make grill-me conditional");
@@ -187,7 +189,8 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(prompt.includes("workflow_init") && prompt.includes("workflow_note") && prompt.includes("workflow_progress"), "shape-plan starter should integrate with public workflow tools");
   assert(prompt.includes("Subagents are mandatory for non-trivial plans"), "shape-plan starter should require subagents for non-trivial plans");
   assert(prompt.includes("Required roles: `scout`, `reviewer`, and `oracle`"), "shape-plan starter should name mandatory subagent roles");
-  assert(prompt.includes("If subagents are unavailable, stop after repo inspection"), "shape-plan starter should stop instead of silently degrading without subagents");
+  assert(prompt.includes("Requires the public `pi-subagents` extension"), "shape-plan starter should reference the actual public subagent dependency");
+  assert(prompt.includes("If `pi-subagents` is unavailable, stop after repo inspection"), "shape-plan starter should stop instead of silently degrading without pi-subagents");
   assert(prompt.includes("Mandatory workflow steps"), "shape-plan starter should make the core workflow steps mandatory");
 }
 

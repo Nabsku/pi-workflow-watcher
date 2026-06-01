@@ -89,7 +89,7 @@ For any non-trivial plan, these steps are mandatory:
 
 ## Mandatory subagents and review
 
-Subagents are mandatory for non-trivial plans. Required roles: `scout`, `reviewer`, and `oracle`.
+Subagents are mandatory for non-trivial plans. Required roles: `scout`, `reviewer`, and `oracle`. Requires the public `pi-subagents` extension (`pi install pi-subagents`, npm package `pi-subagents@^0.27.0`).
 
 - Use `scout` for codebase context before drafting. Ask for exact files/symbols/tests/configs, likely change points, risks, and verification commands.
 - Use `reviewer` for adversarial plan review against acceptance criteria and repo evidence.
@@ -97,7 +97,7 @@ Subagents are mandatory for non-trivial plans. Required roles: `scout`, `reviewe
 - Use `researcher` only when external docs/current facts matter.
 - Use `planner` only for alternate decomposition, not edits.
 
-If subagents are unavailable, stop after repo inspection and tell the user to install/enable a subagent extension or explicitly approve a degraded self-reviewed plan. Do not silently downgrade a non-trivial plan to self-review.
+If `pi-subagents` is unavailable, stop after repo inspection and tell the user to install/enable it (`pi install pi-subagents`) or explicitly approve a degraded self-reviewed plan. Do not silently downgrade a non-trivial plan to self-review.
 
 For trivial plans, you may skip subagents only when the change is single-file, low-risk, has obvious verification, and the final response explicitly says subagents were skipped because the plan is trivial. Council-style review is optional and only for ambiguous, risky, cross-cutting, or multi-approach changes; keep each reviewer to at most 5 bullets: strongest concern, missed file/test, simpler option, acceptance gap, verdict.
 

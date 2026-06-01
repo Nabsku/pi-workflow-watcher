@@ -52,7 +52,7 @@ Example:
 /shape-plan Add GitHub issue triage automation
 ```
 
-The starter prompt inspects the repo, reads or initializes workflow context when the `workflow_*` tools are available, writes a plan under `.pi/plans/<slug>.md`, records `workflow_note PLAN_CREATED <path>` when possible, and tells the user the next implementation command. It is opinionated by default: `grill-me` is conditional, but non-trivial plans require subagent-style scout/reviewer/oracle passes. If subagents are unavailable, the prompt stops after repo inspection and asks for explicit approval before producing a degraded self-reviewed plan.
+The starter prompt inspects the repo, reads or initializes workflow context when the `workflow_*` tools are available, writes a plan under `.pi/plans/<slug>.md`, records `workflow_note PLAN_CREATED <path>` when possible, and tells the user the next implementation command. It is opinionated by default: `grill-me` is conditional, but non-trivial plans require `scout`/`reviewer`/`oracle` passes from the public `pi-subagents` extension (`pi install pi-subagents`). If `pi-subagents` is unavailable, the prompt stops after repo inspection and asks for explicit approval before writing a degraded self-reviewed plan.
 
 After a plan exists, use:
 
