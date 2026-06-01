@@ -74,17 +74,32 @@ If a `grill-me` skill or equivalent questioning workflow is available, use it he
 - Stop questioning when remaining ambiguity can be captured as explicit assumptions/non-goals.
 - If a question blocks safe planning, stop and ask; do not bury it in the plan.
 
-## Optional subagents and review
+## Mandatory workflow steps
 
-If subagents are available, use them when they improve plan quality:
+For any non-trivial plan, these steps are mandatory:
 
-- `scout` for codebase context before drafting. Ask for exact files/symbols/tests/configs, likely change points, risks, and verification commands.
-- `researcher` only when external docs/current facts matter.
-- `planner` only for alternate decomposition, not edits.
-- `reviewer` for adversarial plan review against acceptance criteria and repo evidence.
-- `oracle` as the final decision-consistency reviewer. Oracle is advisory and must not edit.
+1. Capture repo baseline with `git status --short --branch`.
+2. Inspect repo files before asking questions.
+3. Read or initialize workflow context using `.pi/workflows.json` and `workflow_init` when available.
+4. Produce an evidence-backed code map with exact files/symbols/tests/configs.
+5. Write the plan artifact under `.pi/plans/` or the configured `artifacts.plansDir`.
+6. Include acceptance traceability, slice ownership, verification commands, and adversarial review blocks.
+7. Record `workflow_note PLAN_CREATED <path>` when `workflow_note` is available.
+8. Check `workflow_progress` when available before the final response.
 
-If reviewer/oracle roles are unavailable, perform a self-review and clearly mark it as less strong than independent review. Council-style review is optional and only for ambiguous, risky, cross-cutting, or multi-approach changes; keep each reviewer to at most 5 bullets: strongest concern, missed file/test, simpler option, acceptance gap, verdict.
+## Mandatory subagents and review
+
+Subagents are mandatory for non-trivial plans. Required roles: `scout`, `reviewer`, and `oracle`.
+
+- Use `scout` for codebase context before drafting. Ask for exact files/symbols/tests/configs, likely change points, risks, and verification commands.
+- Use `reviewer` for adversarial plan review against acceptance criteria and repo evidence.
+- Use `oracle` as the final decision-consistency reviewer. Oracle is advisory and must not edit.
+- Use `researcher` only when external docs/current facts matter.
+- Use `planner` only for alternate decomposition, not edits.
+
+If subagents are unavailable, stop after repo inspection and tell the user to install/enable a subagent extension or explicitly approve a degraded self-reviewed plan. Do not silently downgrade a non-trivial plan to self-review.
+
+For trivial plans, you may skip subagents only when the change is single-file, low-risk, has obvious verification, and the final response explicitly says subagents were skipped because the plan is trivial. Council-style review is optional and only for ambiguous, risky, cross-cutting, or multi-approach changes; keep each reviewer to at most 5 bullets: strongest concern, missed file/test, simpler option, acceptance gap, verdict.
 
 ## Plan artifact requirements
 

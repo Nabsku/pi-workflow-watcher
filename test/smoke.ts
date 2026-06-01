@@ -185,7 +185,10 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(!prompt.includes("openai-codex/gpt-5.5"), "shape-plan starter should not pin a private/default model");
   assert(!prompt.includes("~/.agents") && !prompt.includes("~/.pi/agent/prompts"), "shape-plan starter should not depend on private local paths");
   assert(prompt.includes("workflow_init") && prompt.includes("workflow_note") && prompt.includes("workflow_progress"), "shape-plan starter should integrate with public workflow tools");
-  assert(prompt.includes("If subagents are available") && prompt.includes("If reviewer/oracle roles are unavailable"), "shape-plan starter should degrade when optional subagents are missing");
+  assert(prompt.includes("Subagents are mandatory for non-trivial plans"), "shape-plan starter should require subagents for non-trivial plans");
+  assert(prompt.includes("Required roles: `scout`, `reviewer`, and `oracle`"), "shape-plan starter should name mandatory subagent roles");
+  assert(prompt.includes("If subagents are unavailable, stop after repo inspection"), "shape-plan starter should stop instead of silently degrading without subagents");
+  assert(prompt.includes("Mandatory workflow steps"), "shape-plan starter should make the core workflow steps mandatory");
 }
 
 {
