@@ -1,0 +1,36 @@
+{
+  "$schema": "../schemas/pi-workflows.schema.json",
+  "version": 1,
+  "project": {
+    "name": "python-service",
+    "kind": "package",
+    "root": ".",
+    "packageManager": "uv",
+    "primaryLanguages": ["python"]
+  },
+  "commands": {
+    "test": { "cmd": "uv run pytest", "source": "pyproject.toml/pytest", "confidence": "verified" },
+    "testFocused": { "cmd": "uv run pytest tests/path/test_focused.py -q", "source": "operator", "confidence": "inferred" },
+    "typecheck": { "cmd": "uv run pyright", "source": "pyproject.toml/tooling", "confidence": "verified" },
+    "lint": { "cmd": "uv run ruff check .", "source": "pyproject.toml/tooling", "confidence": "verified" },
+    "build": { "cmd": "uv build", "source": "pyproject.toml/build-system", "confidence": "verified" }
+  },
+  "gates": {
+    "preflight": { "description": "Baseline repo state checks before editing.", "commands": [], "required": false, "allowEmpty": true },
+    "focused": { "description": "Narrow verification for the active slice.", "commands": ["testFocused"], "required": false },
+    "beforeCommit": { "description": "Checks required before committing.", "commands": ["typecheck", "lint", "test"], "required": true },
+    "final": { "description": "Strongest practical final verification.", "commands": ["build", "test"], "required": true }
+  },
+  "rules": {
+    "requirePlanForMultiFileChanges": true,
+    "requireReviewBeforeCommit": true,
+    "requireAdversarialReviewAfterEveryTask": true,
+    "oneWriter": true,
+    "commitPolicy": "plan",
+    "allowedSubagents": ["scout", "planner", "worker", "reviewer", "oracle"],
+    "stopOn": ["dirty-overlap", "unknown-command", "failed-gate", "review-failed", "unapproved-dependency-change", "external-side-effect"]
+  },
+  "artifacts": { "plansDir": ".pi/plans", "runsDir": ".pi/runs", "agentInstructions": "AGENTS.md" },
+  "ownership": { "highRiskPaths": ["migrations/**", "infra/**"], "generatedPaths": ["dist/**", "build/**"], "lockfiles": ["uv.lock", "poetry.lock", "requirements.txt"] },
+  "notes": ["Copy to .pi/workflows.json and verify every command before trusting required gates."]
+}

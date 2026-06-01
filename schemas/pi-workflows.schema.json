@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Nabsku/pi-workflow-watcher/blob/main/schemas/pi-workflows.schema.json",
+  "title": "Pi workflow watcher contract",
+  "description": "Workflow contract consumed by pi-workflow-watcher at .pi/workflows.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "project", "commands", "gates", "rules", "artifacts", "ownership"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "root"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["app", "service", "package", "library", "cli", "monorepo", "docs", "infra", "unknown"] },
+        "root": { "type": "string", "minLength": 1 },
+        "packageManager": { "type": ["string", "null"] },
+        "primaryLanguages": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/definitions/command" }
+    },
+    "gates": {
+      "type": "object",
+      "required": ["preflight", "focused", "beforeCommit", "final"],
+      "additionalProperties": { "$ref": "#/definitions/gate" }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requirePlanForMultiFileChanges", "requireReviewBeforeCommit", "requireAdversarialReviewAfterEveryTask", "oneWriter", "commitPolicy"],
+      "properties": {
+        "requirePlanForMultiFileChanges": { "type": "boolean" },
+        "requireReviewBeforeCommit": { "type": "boolean" },
+        "requireAdversarialReviewAfterEveryTask": { "const": true },
+        "oneWriter": { "type": "boolean" },
+        "commitPolicy": { "type": "string", "enum": ["never", "ask", "plan", "always"] },
+        "allowedSubagents": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "stopOn": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plansDir": { "type": "string", "minLength": 1 },
+        "runsDir": { "type": "string", "minLength": 1 },
+        "agentInstructions": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ownership": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "highRiskPaths": { "type": "array", "items": { "type": "string" } },
+        "generatedPaths": { "type": "array", "items": { "type": "string" } },
+        "lockfiles": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  },
+  "definitions": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cmd", "source", "confidence"],
+      "properties": {
+        "cmd": { "type": ["string", "null"] },
+        "source": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "string", "enum": ["verified", "inferred", "absent"] },
+        "timeoutSeconds": { "type": "number", "exclusiveMinimum": 0 },
+        "requiresNetwork": { "type": "boolean" },
+        "mutatesRepo": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "confidence": { "const": "absent" } }, "required": ["confidence"] },
+          "then": { "properties": { "cmd": { "const": null } } }
+        }
+      ]
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "commands"],
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "commands": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "required": { "type": "boolean" },
+        "allowEmpty": { "type": "boolean" }
+      }
+    }
+  }
+}

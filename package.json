@@ -1,0 +1,59 @@
+{
+  "name": "pi-workflow-watcher",
+  "version": "0.2.0",
+  "description": "Repo workflow watcher and nudge tools for Pi coding agent",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --allowImportingTsExtensions --skipLibCheck index.ts test/smoke.ts test/e2e.ts",
+    "test": "tsx test/smoke.ts",
+    "test:e2e": "tsx test/e2e.ts"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "extension",
+    "workflow",
+    "watcher"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/Nabsku/pi-workflow-watcher.git"
+  },
+  "homepage": "https://github.com/Nabsku/pi-workflow-watcher#readme",
+  "bugs": {
+    "url": "https://github.com/Nabsku/pi-workflow-watcher/issues"
+  },
+  "files": [
+    "index.ts",
+    "src/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "schemas/",
+    "examples/"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "^0.75.5",
+    "@earendil-works/pi-coding-agent": "^0.75.5",
+    "@earendil-works/pi-tui": "^0.75.5"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.75.5",
+    "@earendil-works/pi-coding-agent": "^0.75.5",
+    "@earendil-works/pi-tui": "^0.75.5",
+    "@types/node": "^25.9.1",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
