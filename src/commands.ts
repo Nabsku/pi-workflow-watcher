@@ -11,7 +11,7 @@ import { stateFile, readState, writeState, diffSnapshot, runsDirResolution } fro
 import { formatCompactStatus, details, formatWatch } from "./formatting.ts";
 import { evidenceDetails, formatEvidence, formatWhy, whyDetails, reviewPacketDetails, progressDetails, formatProgress, createEvidenceBundle, doctorDetails, formatDoctor } from "./evidence.ts";
 import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, importAcceptanceEvidence, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
-import { refreshWorkflowUi, formatHelp } from "./ui.ts";
+import { clearWorkflowUi, refreshWorkflowUi, formatHelp } from "./ui.ts";
 import { setWorkflowWatcherEnabled, workflowTogglePath, workflowWatcherEnabled } from "./toggle.ts";
 
 export function registerWorkflowCommand(pi: ExtensionAPI) {
@@ -41,7 +41,7 @@ export function registerWorkflowCommand(pi: ExtensionAPI) {
         const enabled = requested === "on" ? true : requested === "off" ? false : !current;
         const result = setWorkflowWatcherEnabled(root, enabled);
         if (enabled) refreshWorkflowUi(ctx as WorkflowUiContext);
-        else ctx.ui?.setStatus?.("workflow-watcher", "WF off"), ctx.ui?.setWidget?.("workflow-watcher", ["workflow watcher: off", "Run /workflow toggle on to enable nudges/guards."]);
+        else clearWorkflowUi(ctx as WorkflowUiContext);
         send(`workflow watcher: ${enabled ? "on" : "off"}\nconfig: ${result.path}\n${enabled ? "Nudges and guards are enabled for this repo." : "Nudges and guards are disabled for this repo."}`, { root, enabled, configPath: workflowTogglePath(root) });
         return;
       }

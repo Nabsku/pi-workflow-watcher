@@ -7,7 +7,7 @@ import workflowWatcher from "../index.ts";
 
 type Tool = { name: string; execute: (id: string, params: Record<string, unknown>) => Promise<unknown> };
 type Hook = (event: Record<string, unknown>, ctx?: Record<string, unknown>) => Promise<unknown> | unknown;
-type Command = { description?: string; getArgumentCompletions?: (prefix: string) => Array<{ value: string; label?: string }>; handler: (args: string, ctx: { cwd: string; hasUI?: boolean; ui?: { setStatus?: (key: string, value: string) => void; setWidget?: (key: string, lines: string[], options?: unknown) => void; theme?: { fg: (_color: string, text: string) => string } } }) => Promise<void> };
+type Command = { description?: string; getArgumentCompletions?: (prefix: string) => Array<{ value: string; label?: string }>; handler: (args: string, ctx: { cwd: string; hasUI?: boolean; ui?: { setStatus?: (key: string, value: string | undefined) => void; setWidget?: (key: string, lines: string[] | undefined, options?: unknown) => void; theme?: { fg: (_color: string, text: string) => string } } }) => Promise<void> };
 
 const tools: Tool[] = [];
 const commands: Record<string, Command> = {};
@@ -16,8 +16,8 @@ const statuses: Record<string, string> = {};
 const widgets: Record<string, string[]> = {};
 const ui = {
   theme: { fg: (_color: string, text: string) => text },
-  setStatus(key: string, value: string) { statuses[key] = value; },
-  setWidget(key: string, lines: string[]) { widgets[key] = lines; },
+  setStatus(key: string, value: string | undefined) { if (value === undefined) delete statuses[key]; else statuses[key] = value; },
+  setWidget(key: string, lines: string[] | undefined) { if (lines === undefined) delete widgets[key]; else widgets[key] = lines; },
 };
 const hooks: Record<string, Hook[]> = {};
 const fakePi = {
@@ -211,9 +211,18 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 {
   const root = repo();
   writeContract(root, validContract());
+  statuses["workflow-watcher"] = "WF stale";
+  widgets["workflow-watcher"] = ["stale widget"];
   messages.length = 0;
   await commands.workflow.handler("toggle off", { cwd: root, hasUI: true, ui });
   assert(messages[0]?.content.includes("workflow watcher: off"), "/workflow toggle off should report disabled state");
+  assert(!("workflow-watcher" in statuses), "/workflow toggle off should remove the status line instead of showing WF off");
+  assert(!("workflow-watcher" in widgets), "/workflow toggle off should remove the workflow widget");
+  statuses["workflow-watcher"] = "WF stale";
+  widgets["workflow-watcher"] = ["stale widget"];
+  await hooks.session_start[0]({ cwd: root }, { cwd: root, hasUI: true, ui } as never);
+  assert(!("workflow-watcher" in statuses), "disabled session_start should clear stale status line");
+  assert(!("workflow-watcher" in widgets), "disabled session_start should clear stale widget");
   const beforeStart = await hooks.before_agent_start[0]({ cwd: root });
   assert(beforeStart === undefined, "disabled workflow watcher should not inject before-agent nudges");
   const toolGuard = await hooks.tool_call[0]({ cwd: root, toolName: "terminal", args: { command: "git commit -m nope" } });

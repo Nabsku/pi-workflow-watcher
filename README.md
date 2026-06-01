@@ -27,7 +27,7 @@ Expected loaded commands/tools:
 
 If `/workflow help` is unavailable, restart Pi, confirm the package is in Pi's extension/package config, and check that the installed package includes `index.ts` plus the `pi.extensions` entry in `package.json`.
 
-The watcher can be noisy if it is active for casual sessions. Use `/workflow toggle off` in a repo to disable automatic startup nudges, TUI status/widget updates, and hook guardrails for that repo. Use `/workflow toggle on` to re-enable them. The toggle is stored in `.pi/workflow-watcher.json`.
+The watcher can be noisy if it is active for casual sessions. Use `/workflow toggle off` in a repo to disable automatic startup nudges, remove TUI status/widget surfaces, and disable hook guardrails for that repo. Use `/workflow toggle on` to re-enable them. The toggle is stored in `.pi/workflow-watcher.json`.
 
 ## Publishing and schema caveat
 

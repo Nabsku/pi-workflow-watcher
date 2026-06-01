@@ -3,7 +3,7 @@ import type { WorkflowUiContext } from "./types.ts";
 import { repoRoot } from "./fs-git.ts";
 import { analyze, severity } from "./contract.ts";
 import { details } from "./formatting.ts";
-import { refreshWorkflowUi } from "./ui.ts";
+import { clearWorkflowUi, refreshWorkflowUi } from "./ui.ts";
 import { eventCwd, inspectToolCallEvent } from "./guards.ts";
 import { workflowWatcherEnabled } from "./toggle.ts";
 
@@ -13,12 +13,12 @@ export function registerHooks(pi: ExtensionAPI) {
 
   api.on("session_start", async (event, ctx) => {
     const root = repoRoot(ctx?.cwd ?? eventCwd(event ?? {}));
-    if (!workflowWatcherEnabled(root)) return undefined;
+    if (!workflowWatcherEnabled(root)) { clearWorkflowUi({ ...ctx, cwd: root }); return undefined; }
     return refreshWorkflowUi({ ...ctx, cwd: root });
   });
   api.on("turn_end", async (event, ctx) => {
     const root = repoRoot(ctx?.cwd ?? eventCwd(event ?? {}));
-    if (!workflowWatcherEnabled(root)) return undefined;
+    if (!workflowWatcherEnabled(root)) { clearWorkflowUi({ ...ctx, cwd: root }); return undefined; }
     return refreshWorkflowUi({ ...ctx, cwd: root });
   });
 

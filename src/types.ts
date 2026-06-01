@@ -102,7 +102,7 @@ export type WatchDetails = {
 };
 
 export type PlanInference = { selectedPlan?: string; findings: Finding[]; explanation: string[] };
-export type WorkflowUi = { setStatus?: (key: string, value: string) => void; setWidget?: (key: string, lines: string[], options?: { placement?: string }) => void; notify?: (message: string, level?: string) => void; theme?: { fg?: (color: string, text: string) => string; bold?: (text: string) => string } };
+export type WorkflowUi = { setStatus?: (key: string, value: string | undefined) => void; setWidget?: (key: string, lines: string[] | undefined, options?: { placement?: string }) => void; notify?: (message: string, level?: string) => void; theme?: { fg?: (color: string, text: string) => string; bold?: (text: string) => string } };
 export type WorkflowUiContext = { cwd?: string; hasUI?: boolean; ui?: WorkflowUi };
 
 export type { AgentToolResult };

@@ -12,6 +12,8 @@ import { repoRoot } from "./fs-git.ts";
 import { formatCompactStatus, renderWorkflowStatusLine, renderWorkflowWidget } from "./formatting.ts";
 import { evidenceDetails, formatEvidence } from "./evidence.ts";
 
+export function clearWorkflowUi(ctx?: WorkflowUiContext) { ctx?.ui?.setStatus?.("workflow-watcher", undefined); ctx?.ui?.setWidget?.("workflow-watcher", undefined); }
+
 export function refreshWorkflowUi(ctx?: WorkflowUiContext) { const root = repoRoot(ctx?.cwd ?? process.cwd()); const analysis = analyze(root, "status"); ctx?.ui?.setStatus?.("workflow-watcher", renderWorkflowStatusLine(root, analysis, ctx?.ui?.theme)); ctx?.ui?.setWidget?.("workflow-watcher", renderWorkflowWidget(root, analysis, ctx?.ui?.theme)); }
 
 export function formatHelp(): string {
