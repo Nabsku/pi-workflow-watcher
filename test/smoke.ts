@@ -142,6 +142,8 @@ const bundleCompletions = commands.workflow.getArgumentCompletions?.("b") as Arr
 assert(bundleCompletions?.some((item) => item.value === "bundle"), "workflow slash command completions should include bundle");
 const progressCompletions = commands.workflow.getArgumentCompletions?.("p") as Array<{ value?: string }> | undefined;
 assert(progressCompletions?.some((item) => item.value === "progress"), "workflow slash command completions should include progress");
+const toggleCompletions = commands.workflow.getArgumentCompletions?.("t") as Array<{ value?: string }> | undefined;
+assert(toggleCompletions?.some((item) => item.value === "toggle"), "workflow slash command completions should include toggle");
 assert(hooks.tool_call?.length, "tool_call hook not registered");
 assert(hooks.before_agent_start?.length, "before_agent_start hook not registered");
 assert(hooks.session_start?.length, "session_start UI hook not registered");
@@ -162,6 +164,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(readme.includes("Gate timed out"), "README should include gate timeout recipe");
   assert(readme.includes("Manual notes vs trusted evidence"), "README should include manual-vs-trusted recipe");
   assert(readme.includes("/workflow help"), "README should mention workflow help");
+  assert(readme.includes("/workflow toggle"), "README should document watcher toggle");
   assert(readme.includes("Ownership paths fail closed"), "README should document ownership path fail-closed behavior");
   assert(readme.includes("JSONL ledger") && readme.includes("redacts"), "README should document JSONL ledger privacy/sanitization");
   assert(readme.includes("Schema and examples") && readme.includes("Release readiness checklist"), "README should document schema/examples and release readiness");
@@ -203,6 +206,21 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(content.includes("/workflow gate beforeCommit --dry-run"), "/workflow help should include gate dry-run example");
   assert(content.includes("Trusted evidence warning"), "/workflow help should include trusted evidence warning");
   assert(content.includes("Manual notes are recorded context, not trusted approval."), "/workflow help should warn manual notes do not unlock commits");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
+  messages.length = 0;
+  await commands.workflow.handler("toggle off", { cwd: root, hasUI: true, ui });
+  assert(messages[0]?.content.includes("workflow watcher: off"), "/workflow toggle off should report disabled state");
+  const beforeStart = await hooks.before_agent_start[0]({ cwd: root });
+  assert(beforeStart === undefined, "disabled workflow watcher should not inject before-agent nudges");
+  const toolGuard = await hooks.tool_call[0]({ cwd: root, toolName: "terminal", args: { command: "git commit -m nope" } });
+  assert(toolGuard === undefined, "disabled workflow watcher should not block tool calls");
+  messages.length = 0;
+  await commands.workflow.handler("toggle on", { cwd: root, hasUI: true, ui });
+  assert(messages[0]?.content.includes("workflow watcher: on"), "/workflow toggle on should report enabled state");
 }
 
 {

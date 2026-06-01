@@ -32,6 +32,7 @@ export function formatHelp(): string {
     "- /workflow note <text> — record a short manual breadcrumb; recognized verdict prose is still untrusted by default.",
     "- /workflow gate <name> [--dry-run] — resolve or run a named gate from .pi/workflows.json.",
     "- /workflow plan [path-or-slug] — show or pin the active plan.",
+    "- /workflow toggle [on|off] — enable/disable automatic nudges, status UI, and hook guards for this repo.",
     "- /workflow help — show this help.",
     "",
     "Examples:",

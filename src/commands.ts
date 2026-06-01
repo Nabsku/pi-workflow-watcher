@@ -12,13 +12,14 @@ import { formatCompactStatus, details, formatWatch } from "./formatting.ts";
 import { evidenceDetails, formatEvidence, formatWhy, whyDetails, reviewPacketDetails, progressDetails, formatProgress, createEvidenceBundle, doctorDetails, formatDoctor } from "./evidence.ts";
 import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, importAcceptanceEvidence, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
 import { refreshWorkflowUi, formatHelp } from "./ui.ts";
+import { setWorkflowWatcherEnabled, workflowTogglePath, workflowWatcherEnabled } from "./toggle.ts";
 
 export function registerWorkflowCommand(pi: ExtensionAPI) {
   pi.registerCommand("workflow", {
-    description: "Compact workflow watcher: status | next | progress | doctor | evidence | why | review-prompt | bundle | dirty | note <text> | gate <name> [--dry-run] | plan [path|slug] | help",
+    description: "Compact workflow watcher: status | next | progress | doctor | evidence | why | review-prompt | bundle | dirty | note <text> | gate <name> [--dry-run] | plan [path|slug] | toggle [on|off] | help",
     getArgumentCompletions(prefix) {
       const first = prefix.trimStart().split(/\s/)[0] ?? "";
-      return ["status", "next", "progress", "doctor", "evidence", "why", "review-prompt", "bundle", "dirty", "note", "gate", "plan", "help"].filter((value) => value.startsWith(first)).map((value) => ({ value, label: value }));
+      return ["status", "next", "progress", "doctor", "evidence", "why", "review-prompt", "bundle", "dirty", "note", "gate", "plan", "toggle", "help"].filter((value) => value.startsWith(first)).map((value) => ({ value, label: value }));
     },
     async handler(args, ctx) {
       const [subRaw, ...rest] = args.trim().split(/\s/).filter(Boolean);
@@ -31,7 +32,17 @@ export function registerWorkflowCommand(pi: ExtensionAPI) {
         return;
       }
       if (sub === "help") {
-        send(formatHelp(), { root, commands: ["status", "next", "progress", "doctor", "evidence", "why", "review-prompt", "bundle", "dirty", "note", "gate", "plan", "help"] });
+        send(formatHelp(), { root, commands: ["status", "next", "progress", "doctor", "evidence", "why", "review-prompt", "bundle", "dirty", "note", "gate", "plan", "toggle", "help"] });
+        return;
+      }
+      if (sub === "toggle") {
+        const requested = rest[0];
+        const current = workflowWatcherEnabled(root);
+        const enabled = requested === "on" ? true : requested === "off" ? false : !current;
+        const result = setWorkflowWatcherEnabled(root, enabled);
+        if (enabled) refreshWorkflowUi(ctx as WorkflowUiContext);
+        else ctx.ui?.setStatus?.("workflow-watcher", "WF off"), ctx.ui?.setWidget?.("workflow-watcher", ["workflow watcher: off", "Run /workflow toggle on to enable nudges/guards."]);
+        send(`workflow watcher: ${enabled ? "on" : "off"}\nconfig: ${result.path}\n${enabled ? "Nudges and guards are enabled for this repo." : "Nudges and guards are disabled for this repo."}`, { root, enabled, configPath: workflowTogglePath(root) });
         return;
       }
       if (sub === "next") {
@@ -144,7 +155,7 @@ export function registerWorkflowCommand(pi: ExtensionAPI) {
         refreshWorkflowUi(ctx as WorkflowUiContext);
         return;
       }
-      send("usage: /workflow status | next | progress | doctor | evidence | why [commit|edit <path>] | review-prompt | bundle | dirty | note <text> | gate <name> [--dry-run] | plan [path|slug] | help");
+      send("usage: /workflow status | next | progress | doctor | evidence | why [commit|edit <path>] | review-prompt | bundle | dirty | note <text> | gate <name> [--dry-run] | plan [path|slug] | toggle [on|off] | help");
     },
   });
 }

@@ -22,10 +22,12 @@ Install from the package/repo according to your Pi package workflow, then verify
 
 Expected loaded commands/tools:
 
-- Slash command: `/workflow status|next|progress|doctor|evidence|why|review-prompt|bundle|dirty|note|gate|plan|help`
+- Slash command: `/workflow status|next|progress|doctor|evidence|why|review-prompt|bundle|dirty|note|gate|plan|toggle|help`
 - Agent tools: `workflow_watch`, `workflow_next`, `workflow_init`, `workflow_approve_dirty_overlap`, `workflow_gate`, `workflow_progress`, `workflow_export_evidence`, `workflow_note`, `workflow_review_packet`, `workflow_why`, `workflow_import_acceptance`
 
 If `/workflow help` is unavailable, restart Pi, confirm the package is in Pi's extension/package config, and check that the installed package includes `index.ts` plus the `pi.extensions` entry in `package.json`.
+
+The watcher can be noisy if it is active for casual sessions. Use `/workflow toggle off` in a repo to disable automatic startup nudges, TUI status/widget updates, and hook guardrails for that repo. Use `/workflow toggle on` to re-enable them. The toggle is stored in `.pi/workflow-watcher.json`.
 
 ## Publishing and schema caveat
 

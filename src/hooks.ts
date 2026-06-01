@@ -5,16 +5,26 @@ import { analyze, severity } from "./contract.ts";
 import { details } from "./formatting.ts";
 import { refreshWorkflowUi } from "./ui.ts";
 import { eventCwd, inspectToolCallEvent } from "./guards.ts";
+import { workflowWatcherEnabled } from "./toggle.ts";
 
 export function registerHooks(pi: ExtensionAPI) {
   const api = pi as unknown as { on?: (event: string, handler: (event: Record<string, unknown>, ctx?: WorkflowUiContext) => unknown) => void };
   if (!api.on) return;
 
-  api.on("session_start", async (event, ctx) => refreshWorkflowUi({ ...ctx, cwd: ctx?.cwd ?? eventCwd(event ?? {}) }));
-  api.on("turn_end", async (event, ctx) => refreshWorkflowUi({ ...ctx, cwd: ctx?.cwd ?? eventCwd(event ?? {}) }));
+  api.on("session_start", async (event, ctx) => {
+    const root = repoRoot(ctx?.cwd ?? eventCwd(event ?? {}));
+    if (!workflowWatcherEnabled(root)) return undefined;
+    return refreshWorkflowUi({ ...ctx, cwd: root });
+  });
+  api.on("turn_end", async (event, ctx) => {
+    const root = repoRoot(ctx?.cwd ?? eventCwd(event ?? {}));
+    if (!workflowWatcherEnabled(root)) return undefined;
+    return refreshWorkflowUi({ ...ctx, cwd: root });
+  });
 
   api.on("before_agent_start", async (event) => {
     const root = repoRoot(eventCwd(event ?? {}));
+    if (!workflowWatcherEnabled(root)) return undefined;
     const analysis = analyze(root, "status");
     const sev = severity(analysis.findings);
     if (sev === "ok") return undefined;
@@ -22,6 +32,8 @@ export function registerHooks(pi: ExtensionAPI) {
   });
 
   api.on("tool_call", async (event) => {
+    const root = repoRoot(eventCwd(event ?? {}));
+    if (!workflowWatcherEnabled(root)) return undefined;
     return inspectToolCallEvent(event);
   });
 }
