@@ -13,13 +13,14 @@ import { evidenceDetails, formatEvidence, formatWhy, whyDetails, reviewPacketDet
 import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, importAcceptanceEvidence, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
 import { clearWorkflowUi, refreshWorkflowUi, formatHelp } from "./ui.ts";
 import { setWorkflowWatcherEnabled, workflowTogglePath, workflowWatcherEnabled } from "./toggle.ts";
+import { sendShapePlanRequest } from "./shape-plan-command.ts";
 
 export function registerWorkflowCommand(pi: ExtensionAPI) {
   pi.registerCommand("workflow", {
-    description: "Compact workflow watcher: status | next | progress | doctor | evidence | why | review-prompt | bundle | dirty | note <text> | gate <name> [--dry-run] | plan [path|slug] | toggle [on|off] | help",
+    description: "Compact workflow watcher: status | next | progress | doctor | evidence | why | review-prompt | bundle | dirty | note <text> | gate <name> [--dry-run] | plan [path|slug] | shape-plan <goal> | toggle [on|off] | help",
     getArgumentCompletions(prefix) {
       const first = prefix.trimStart().split(/\s/)[0] ?? "";
-      return ["status", "next", "progress", "doctor", "evidence", "why", "review-prompt", "bundle", "dirty", "note", "gate", "plan", "toggle", "help"].filter((value) => value.startsWith(first)).map((value) => ({ value, label: value }));
+      return ["status", "next", "progress", "doctor", "evidence", "why", "review-prompt", "bundle", "dirty", "note", "gate", "plan", "shape-plan", "toggle", "help"].filter((value) => value.startsWith(first)).map((value) => ({ value, label: value }));
     },
     async handler(args, ctx) {
       const [subRaw, ...rest] = args.trim().split(/\s/).filter(Boolean);
@@ -112,6 +113,10 @@ export function registerWorkflowCommand(pi: ExtensionAPI) {
         send(lines.join("\n"), { root, dirtyBaseline: state.dirtyBaseline, dirtyOverlapApprovals: state.dirtyOverlapApprovals ?? [], statePath: stateFile(root, contract) });
         return;
       }
+      if (sub === "shape-plan") {
+        sendShapePlanRequest(pi, rest.join(" ").trim());
+        return;
+      }
       if (sub === "plan") {
         const planArg = rest.join(" ").trim();
         const read = readContract(root); const contract = read.contract; const state = readState(root, contract);
@@ -155,7 +160,7 @@ export function registerWorkflowCommand(pi: ExtensionAPI) {
         refreshWorkflowUi(ctx as WorkflowUiContext);
         return;
       }
-      send("usage: /workflow status | next | progress | doctor | evidence | why [commit|edit <path>] | review-prompt | bundle | dirty | note <text> | gate <name> [--dry-run] | plan [path|slug] | toggle [on|off] | help");
+      send("usage: /workflow status | next | progress | doctor | evidence | why [commit|edit <path>] | review-prompt | bundle | dirty | note <text> | gate <name> [--dry-run] | plan [path|slug] | shape-plan <goal> | toggle [on|off] | help");
     },
   });
 }

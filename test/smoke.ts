@@ -12,6 +12,7 @@ type Command = { description?: string; getArgumentCompletions?: (prefix: string)
 const tools: Tool[] = [];
 const commands: Record<string, Command> = {};
 const messages: Array<{ content: string; details?: unknown }> = [];
+const userMessages: unknown[] = [];
 const statuses: Record<string, string> = {};
 const widgets: Record<string, string[]> = {};
 const ui = {
@@ -29,6 +30,9 @@ const fakePi = {
   },
   sendMessage(message: { content: string; details?: unknown }) {
     messages.push(message);
+  },
+  sendUserMessage(message: unknown) {
+    userMessages.push(message);
   },
   on(event: string, handler: Hook) {
     hooks[event] ??= [];
@@ -135,6 +139,7 @@ function markLastReviewTrusted(root: string, source: "reviewer_tool" | "oracle_t
 
 for (const name of ["workflow_watch", "workflow_next", "workflow_init", "workflow_approve_dirty_overlap", "workflow_gate", "workflow_progress", "workflow_export_evidence", "workflow_note", "workflow_import_acceptance", "workflow_review_packet", "workflow_why"]) tool(name);
 assert(commands.workflow, "workflow slash command not registered");
+assert(commands["shape-plan"], "shape-plan slash command not registered");
 assert(commands.workflow.description?.includes("help"), "workflow slash command description should mention help");
 const workflowCompletions = commands.workflow.getArgumentCompletions?.("h") as Array<{ value?: string }> | undefined;
 assert(workflowCompletions?.some((item) => item.value === "help"), "workflow slash command completions should include help");
@@ -144,6 +149,8 @@ const progressCompletions = commands.workflow.getArgumentCompletions?.("p") as A
 assert(progressCompletions?.some((item) => item.value === "progress"), "workflow slash command completions should include progress");
 const toggleCompletions = commands.workflow.getArgumentCompletions?.("t") as Array<{ value?: string }> | undefined;
 assert(toggleCompletions?.some((item) => item.value === "toggle"), "workflow slash command completions should include toggle");
+const shapePlanCompletions = commands.workflow.getArgumentCompletions?.("s") as Array<{ value?: string }> | undefined;
+assert(shapePlanCompletions?.some((item) => item.value === "shape-plan"), "workflow slash command completions should include shape-plan");
 assert(hooks.tool_call?.length, "tool_call hook not registered");
 assert(hooks.before_agent_start?.length, "before_agent_start hook not registered");
 assert(hooks.session_start?.length, "session_start UI hook not registered");
@@ -165,7 +172,8 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(readme.includes("Manual notes vs trusted evidence"), "README should include manual-vs-trusted recipe");
   assert(readme.includes("/workflow help"), "README should mention workflow help");
   assert(readme.includes("/workflow toggle"), "README should document watcher toggle");
-  assert(readme.includes("prompts/shape-plan.md") && readme.includes("/shape-plan <goal>"), "README should document the public shape-plan starter prompt");
+  assert(readme.includes("prompts/shape-plan.md") && readme.includes("/shape-plan <goal>") && readme.includes("/workflow shape-plan <goal>"), "README should document the built-in shape-plan command");
+  assert(!readme.includes("cp ~/.pi/agent/git/github.com/Nabsku/pi-workflow-watcher/prompts/shape-plan.md ~/.pi/agent/prompts/shape-plan.md"), "README should not require copying shape-plan into private prompt templates");
   assert(readme.includes("Ownership paths fail closed"), "README should document ownership path fail-closed behavior");
   assert(readme.includes("JSONL ledger") && readme.includes("redacts"), "README should document JSONL ledger privacy/sanitization");
   assert(readme.includes("Schema and examples") && readme.includes("Release readiness checklist"), "README should document schema/examples and release readiness");
@@ -219,13 +227,27 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   await commands.workflow.handler("help", { cwd: root });
   const content = messages[0]?.content ?? "";
   assert(content.includes("# Workflow help"), "/workflow help should send help output");
-  for (const name of ["status", "next", "progress", "doctor", "evidence", "why", "review-prompt", "bundle", "dirty", "note", "gate", "plan", "help"]) {
+  for (const name of ["status", "next", "progress", "doctor", "evidence", "why", "review-prompt", "bundle", "dirty", "note", "gate", "plan", "shape-plan", "help"]) {
     assert(content.includes(`/workflow ${name}`), `/workflow help should list ${name}`);
   }
   assert(content.includes("Examples:"), "/workflow help should include examples");
   assert(content.includes("/workflow gate beforeCommit --dry-run"), "/workflow help should include gate dry-run example");
+  assert(content.includes("/workflow shape-plan Add GitHub issue triage automation"), "/workflow help should include shape-plan example");
   assert(content.includes("Trusted evidence warning"), "/workflow help should include trusted evidence warning");
   assert(content.includes("Manual notes are recorded context, not trusted approval."), "/workflow help should warn manual notes do not unlock commits");
+}
+
+{
+  userMessages.length = 0;
+  await commands["shape-plan"].handler("Add GitHub issue triage automation", { cwd: repo() });
+  const sent = String(userMessages[0] ?? "");
+  assert(sent.includes("Turn the user's rough request into an executable implementation plan"), "/shape-plan should send the embedded shape-plan instructions as a user message");
+  assert(sent.includes("Requests: Add GitHub issue triage automation"), "/shape-plan should include the requested goal");
+  assert(sent.includes("Subagents are mandatory for non-trivial plans"), "/shape-plan should preserve mandatory subagent guidance");
+
+  userMessages.length = 0;
+  await commands.workflow.handler("shape-plan Add GitHub issue triage automation", { cwd: repo() });
+  assert(String(userMessages[0] ?? "").includes("Requests: Add GitHub issue triage automation"), "/workflow shape-plan should delegate to the same built-in prompt");
 }
 
 {

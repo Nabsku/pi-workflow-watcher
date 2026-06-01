@@ -31,19 +31,16 @@ The watcher can be noisy if it is active for casual sessions. Use `/workflow tog
 
 ## Quickstart: create a workflow
 
-The easiest public entry ramp is the starter prompt in `prompts/shape-plan.md`.
-
-Install or copy it into your Pi prompt directory:
-
-```bash
-mkdir -p ~/.pi/agent/prompts
-cp ~/.pi/agent/git/github.com/Nabsku/pi-workflow-watcher/prompts/shape-plan.md ~/.pi/agent/prompts/shape-plan.md
-```
-
-Then, inside a repo:
+The easiest public entry ramp is the built-in command registered by this plugin:
 
 ```text
 /shape-plan <goal>
+```
+
+Equivalent namespaced form:
+
+```text
+/workflow shape-plan <goal>
 ```
 
 Example:
@@ -52,7 +49,7 @@ Example:
 /shape-plan Add GitHub issue triage automation
 ```
 
-The starter prompt inspects the repo, reads or initializes workflow context when the `workflow_*` tools are available, writes a plan under `.pi/plans/<slug>.md`, records `workflow_note PLAN_CREATED <path>` when possible, and tells the user the next implementation command. It is opinionated by default: `grill-me` is conditional, but non-trivial plans require `scout`/`reviewer`/`oracle` passes from the public `pi-subagents` extension (`pi install pi-subagents`). If `pi-subagents` is unavailable, the prompt stops after repo inspection and asks for explicit approval before writing a degraded self-reviewed plan.
+The built-in shape-plan command inspects the repo, reads or initializes workflow context when the `workflow_*` tools are available, writes a plan under `.pi/plans/<slug>.md`, records `workflow_note PLAN_CREATED <path>` when possible, and tells the user the next implementation command. It is opinionated by default: `grill-me` is conditional, but non-trivial plans require `scout`/`reviewer`/`oracle` passes from the public `pi-subagents` extension (`pi install pi-subagents`). If `pi-subagents` is unavailable, the prompt stops after repo inspection and asks for explicit approval before writing a degraded self-reviewed plan.
 
 After a plan exists, use:
 
@@ -61,7 +58,7 @@ After a plan exists, use:
 /workflow progress
 ```
 
-This package only ships the starter template. You can replace it with an organization-specific `/shape-plan` prompt while keeping the plugin as the deterministic workflow/evidence substrate.
+The package still includes `prompts/shape-plan.md` as the command's embedded instruction source. Advanced users can inspect or fork that file, but normal setup does not require copying prompt templates into `~/.pi/agent/prompts`.
 
 ## Publishing and schema caveat
 
