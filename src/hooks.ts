@@ -10,20 +10,21 @@ import { workflowWatcherEnabled } from "./toggle.ts";
 export function registerHooks(pi: ExtensionAPI) {
   const api = pi as unknown as { on?: (event: string, handler: (event: Record<string, unknown>, ctx?: WorkflowUiContext) => unknown) => void };
   if (!api.on) return;
+  const hookRoot = (event: Record<string, unknown>, ctx?: WorkflowUiContext) => repoRoot(ctx?.cwd ?? eventCwd(event ?? {}));
 
   api.on("session_start", async (event, ctx) => {
-    const root = repoRoot(ctx?.cwd ?? eventCwd(event ?? {}));
+    const root = hookRoot(event ?? {}, ctx);
     if (!workflowWatcherEnabled(root)) { clearWorkflowUi({ ...ctx, cwd: root }); return undefined; }
     return refreshWorkflowUi({ ...ctx, cwd: root });
   });
   api.on("turn_end", async (event, ctx) => {
-    const root = repoRoot(ctx?.cwd ?? eventCwd(event ?? {}));
+    const root = hookRoot(event ?? {}, ctx);
     if (!workflowWatcherEnabled(root)) { clearWorkflowUi({ ...ctx, cwd: root }); return undefined; }
     return refreshWorkflowUi({ ...ctx, cwd: root });
   });
 
-  api.on("before_agent_start", async (event) => {
-    const root = repoRoot(eventCwd(event ?? {}));
+  api.on("before_agent_start", async (event, ctx) => {
+    const root = hookRoot(event ?? {}, ctx);
     if (!workflowWatcherEnabled(root)) return undefined;
     const analysis = analyze(root, "status");
     const sev = severity(analysis.findings);
@@ -31,9 +32,9 @@ export function registerHooks(pi: ExtensionAPI) {
     return { message: { customType: "workflow-watcher", content: `Workflow watcher: ${sev.toUpperCase()}\nNext: ${analysis.nextAction}`, display: "Workflow watcher nudge", details: details(root, "status", analysis) } };
   });
 
-  api.on("tool_call", async (event) => {
-    const root = repoRoot(eventCwd(event ?? {}));
+  api.on("tool_call", async (event, ctx) => {
+    const root = hookRoot(event ?? {}, ctx);
     if (!workflowWatcherEnabled(root)) return undefined;
-    return inspectToolCallEvent(event);
+    return inspectToolCallEvent({ ...event, cwd: root });
   });
 }
