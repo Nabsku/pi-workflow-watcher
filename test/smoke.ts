@@ -137,7 +137,7 @@ function markLastReviewTrusted(root: string, source: "reviewer_tool" | "oracle_t
   writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`);
 }
 
-for (const name of ["workflow_watch", "workflow_next", "workflow_init", "workflow_approve_dirty_overlap", "workflow_gate", "workflow_progress", "workflow_export_evidence", "workflow_note", "workflow_import_acceptance", "workflow_review_packet", "workflow_why"]) tool(name);
+for (const name of ["workflow_watch", "workflow_next", "workflow_init", "workflow_approve_dirty_overlap", "workflow_gate", "workflow_progress", "workflow_complete", "workflow_export_evidence", "workflow_note", "workflow_import_acceptance", "workflow_review_packet", "workflow_why"]) tool(name);
 assert(commands.workflow, "workflow slash command not registered");
 assert(!commands["shape-plan"], "shape-plan should not be registered as a top-level slash command");
 assert(!commands["new-plan"], "new-plan should not be registered as a top-level slash command");
@@ -524,6 +524,36 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(messages[0]?.content.includes("trusted=yes fresh=yes"), "/workflow evidence should show fresh trusted evidence");
   assert(messages[0]?.content.includes("- none"), "/workflow evidence should show no missing pieces when ready");
   assert(details.commitReady === true && details.reviewTrusted === true && details.reviewFresh === true && details.gateTrusted === true && details.gateFresh === true, "/workflow evidence ready details should be true");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract({
+    commands: { ok: { cmd: "node -e \"process.exit(0)\"", source: "fixture", confidence: "verified" } },
+    gates: {
+      preflight: { description: "Preflight checks", commands: [], required: false, allowEmpty: true },
+      focused: { description: "Focused checks", commands: [], required: false, allowEmpty: true },
+      beforeCommit: { description: "Pre-commit checks", commands: ["ok"], required: true },
+      final: { description: "Final checks", commands: ["ok"], required: true },
+    },
+  }));
+  mkdirSync(join(root, ".pi/plans"), { recursive: true });
+  writeFileSync(join(root, ".pi/plans/done.md"), "# Plan\n- [x] implement feature\n");
+  writeFileSync(join(root, "file.txt"), "one\n"); git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
+  writeFileSync(join(root, "file.txt"), "two\n");
+  let result = await tool("workflow_complete").execute("complete", { cwd: root, planPath: ".pi/plans/done.md" }) as { content: Array<{ text: string }>; details: { clean: boolean; blockers: string[]; completedAt?: string; activePlan?: string } };
+  assert(result.details.clean === false, "workflow_complete should fail closed without clean evidence");
+  assert(result.content[0].text.includes("Workflow complete: BLOCKED"), "workflow_complete should explain blocked completion");
+  assert(result.details.blockers.includes("trusted reviewer/oracle evidence"), "workflow_complete should require trusted review evidence");
+  await tool("workflow_note").execute("note", { cwd: root, note: "OK_TO_MARK_DONE final review" });
+  markLastReviewTrusted(root, "oracle_tool");
+  await tool("workflow_gate").execute("gate", { cwd: root, gate: "final" });
+  result = await tool("workflow_complete").execute("complete", { cwd: root, planPath: ".pi/plans/done.md" }) as unknown as typeof result;
+  assert(result.details.clean === true && result.details.completedAt, "workflow_complete should succeed only when plan and evidence are clean");
+  assert(result.content[0].text.includes("Workflow complete: OK"), "workflow_complete should report clean completion");
+  const state = readStateFile(root);
+  assert(!state.activePlan, "workflow_complete should clear activePlan after clean completion");
+  assert(state.lastNote?.note.includes("WORKFLOW_COMPLETE"), "workflow_complete should leave a completion breadcrumb");
 }
 
 {

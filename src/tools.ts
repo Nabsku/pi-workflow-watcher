@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
-import type { Finding, GateDetails, WatchDetails, WatchMode, WatchVerbosity, WorkflowUiContext } from "./types.ts";
+import type { Finding, GateDetails, WatchDetails, WatchMode, WatchVerbosity, WorkflowCompleteDetails, WorkflowUiContext } from "./types.ts";
 import { textResult } from "./result.ts";
 import { cwdFrom, repoRoot, normalizeDirtyPath } from "./fs-git.ts";
 import { readContract, normalizePlanPath, starterContract, analyze } from "./contract.ts";
@@ -126,6 +126,38 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
       const root = repoRoot(cwdFrom(params.cwd));
       const details = progressDetails(root, params.planPath);
       return textResult(formatProgress(details), details);
+    },
+  });
+
+  pi.registerTool({
+    name: "workflow_complete",
+    label: "Workflow Complete",
+    description: "Mark the active workflow complete only when the workflow is clean: active plan has zero open tasks and trusted final/beforeCommit evidence is current.",
+    promptSnippet: "Call only at final handoff. This fails closed unless the active plan is complete and trusted reviewer/oracle plus workflow_gate evidence are fresh for the current diff.",
+    parameters: Type.Object({ cwd: Type.Optional(Type.String()), planPath: Type.Optional(Type.String({ description: "Optional plan path or slug under artifacts.plansDir" })) }),
+    async execute(_toolCallId, params) {
+      const root = repoRoot(cwdFrom(params.cwd));
+      const read = readContract(root);
+      const contract = read.contract;
+      const progress = progressDetails(root, params.planPath);
+      const evidence = evidenceDetails(root, contract);
+      const blockers: string[] = [];
+      if (!progress.activePlan) blockers.push("no active plan selected");
+      if (!progress.planParse.parseable) blockers.push("active plan checklist is not parseable");
+      if (progress.counts.open === undefined) blockers.push("open task count is unknown");
+      else if (progress.counts.open > 0) blockers.push(`${progress.counts.open} open plan task(s) remain`);
+      if (!evidence.commitReady) blockers.push(...evidence.missing);
+      const clean = blockers.length === 0;
+      const statePath = stateFile(root, contract);
+      const details: WorkflowCompleteDetails = { root, status: clean ? "complete" : "blocked", clean, activePlan: progress.activePlan, statePath, blockers: [...new Set(blockers)], evidence: { commitReady: evidence.commitReady, reviewTrusted: evidence.reviewTrusted, reviewFresh: evidence.reviewFresh, gateTrusted: evidence.gateTrusted, gateFresh: evidence.gateFresh, missing: evidence.missing }, counts: progress.counts };
+      if (!clean) return textResult(`Workflow complete: BLOCKED\n${details.blockers.map((item) => `- ${item}`).join("\n")}\nNext: ${progress.nextSafeAction}`, details);
+      const state = readState(root, contract);
+      const completedAt = new Date().toISOString();
+      delete state.activePlan;
+      state.lastNote = { at: completedAt, note: `WORKFLOW_COMPLETE ${progress.activePlan ?? "active-plan"}` };
+      writeState(root, contract, state);
+      details.completedAt = completedAt;
+      return textResult(`Workflow complete: OK\nactive plan: ${progress.activePlan}\nstate: ${statePath}\nNext: use /workflow toggle off if you want to quiet watcher surfaces for this repo.`, details);
     },
   });
 

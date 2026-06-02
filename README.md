@@ -23,7 +23,7 @@ Install from the package/repo according to your Pi package workflow, then verify
 Expected loaded commands/tools:
 
 - Slash command: `/workflow status|next|progress|doctor|evidence|why|review-prompt|bundle|dirty|note|gate|plan|shape-plan|new-plan|toggle|help`
-- Agent tools: `workflow_watch`, `workflow_next`, `workflow_init`, `workflow_approve_dirty_overlap`, `workflow_gate`, `workflow_progress`, `workflow_export_evidence`, `workflow_note`, `workflow_review_packet`, `workflow_why`, `workflow_import_acceptance`
+- Agent tools: `workflow_watch`, `workflow_next`, `workflow_init`, `workflow_approve_dirty_overlap`, `workflow_gate`, `workflow_progress`, `workflow_complete`, `workflow_export_evidence`, `workflow_note`, `workflow_review_packet`, `workflow_why`, `workflow_import_acceptance`
 
 If `/workflow help` is unavailable, restart Pi, confirm the package is in Pi's extension/package config, and check that the installed package includes `index.ts` plus the `pi.extensions` entry in `package.json`.
 
@@ -306,6 +306,10 @@ Agent use:
 Read-only progress summary for the active plan/slice. It reports conservative checkbox counts, review/gate freshness, stale evidence after edits, parser limitations, and the next safe action.
 
 Use it when the agent/operator asks “where are we?” without running gates, editing plan files, or launching reviewers. Slash equivalent: `/workflow progress [plan]`.
+
+### `workflow_complete`
+
+Agent-callable finalizer that fails closed unless the workflow is clean: an active plan is selected, its checkbox checklist has zero open tasks, and trusted reviewer/oracle plus `workflow_gate` `beforeCommit`/`final` evidence is fresh for the current diff. On success it clears `activePlan` and leaves a `WORKFLOW_COMPLETE` breadcrumb. It does **not** silently toggle the watcher off; use `/workflow toggle off` if you want to quiet repo-local nudges after completion.
 
 ### `workflow_export_evidence`
 
