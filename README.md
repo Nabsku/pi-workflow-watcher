@@ -4,7 +4,7 @@ Pi extension that makes repo workflow state executable and nudges the coding age
 
 The split is simple:
 
-- **User-facing:** `/workflow ...` commands and the Pi TUI status/widget.
+- **User-facing:** `/workflow ...` commands and a compact Pi status item.
 - **Agent-facing:** `workflow_*` tools, hooks, `.pi/workflows.json`, and persisted evidence/state.
 
 ## Installation
@@ -27,7 +27,7 @@ Expected loaded commands/tools:
 
 If `/workflow help` is unavailable, restart Pi, confirm the package is in Pi's extension/package config, and check that the installed package includes `index.ts` plus the `pi.extensions` entry in `package.json`.
 
-Workflow automation is **off by default** for each repo. Use `/workflow toggle on` when you intentionally want the watcher to start nudging, showing TUI surfaces, and enforcing hook guardrails. Use `/workflow toggle off` to quiet it again. The toggle is stored in `.pi/workflow-watcher.json`.
+Workflow automation is **off by default** for each repo. Use `/workflow toggle on` when you intentionally want the watcher to start nudging, showing a compact status item, and enforcing hook guardrails. Use `/workflow toggle off` to quiet it again. The toggle is stored in `.pi/workflow-watcher.json`.
 
 ## Quickstart: create a workflow
 
@@ -236,27 +236,19 @@ Manual notes are useful audit breadcrumbs, but they are not trusted evidence by 
 
 ## What the user sees but usually does not operate directly
 
-### TUI status line
+### TUI status item
 
-The plugin refreshes a native Pi status item:
+The plugin refreshes a compact native Pi status item:
 
 ```text
-WF OK/NUDGE/BLOCK · dirty N · <plan> · gate <name>:<status> · review <verdict>
+wf:ok|wf:nudge|wf:block d<N> [plan] [gate:<status>] [rev:ok|rev:stale]
 ```
 
-This is meant to be glanceable. It tells you whether the agent is clear to proceed, should adjust, or must stop.
+This is intentionally small so `pi-powerline-footer` can fold it into its `extension_statuses` segment instead of competing with the footer. Detailed workflow context stays in `/workflow status`, `/workflow progress`, `/workflow evidence`, and `/workflow why`.
 
 ### Below-editor widget
 
-The widget shows:
-
-- blockers and nudges
-- active plan and open tasks
-- latest gate/review evidence
-- top finding
-- next action
-
-This is passive guidance for both user and agent. You should not need to copy text from it into prompts unless Pi fails to act on it.
+The plugin does not render a persistent below-editor widget. Earlier versions used one, but it was too visually heavy next to richer TUI/footer extensions.
 
 ## What the agent should use
 

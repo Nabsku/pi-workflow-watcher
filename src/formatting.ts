@@ -48,15 +48,17 @@ export function shortPlanLabel(plan: string | undefined): string {
   const name = basename(plan).replace(/\.(md|json)$/i, "");
   return name.length > 28 ? `${name.slice(0, 25)}…` : name;
 }
-export function workflowBadge(sev: Severity): string { return sev === "blocker" ? "WF BLOCK" : sev === "nudge" ? "WF NUDGE" : "WF OK"; }
+export function workflowBadge(sev: Severity): string { return sev === "blocker" ? "wf:block" : sev === "nudge" ? "wf:nudge" : "wf:ok"; }
 export function colorize(theme: WorkflowUi["theme"] | undefined, color: string, text: string): string { return theme?.fg ? theme.fg(color, text) : text; }
 
 export function renderWorkflowStatusLine(root: string, analysis: ReturnType<typeof analyze>, theme?: WorkflowUi["theme"]): string {
   const d = details(root, "status", analysis);
   const sevColor = d.severity === "blocker" ? "error" : d.severity === "nudge" ? "warning" : "success";
-  const gate = d.lastGateName ? ` · gate ${d.lastGateName}:${d.lastGateStatus ?? "?"}` : "";
-  const review = d.lastReviewVerdict ? ` · review ${d.lastReviewVerdict}${d.reviewStale ? " stale" : ""}` : "";
-  return [colorize(theme, sevColor, workflowBadge(d.severity)), colorize(theme, "dim", ` · dirty ${d.dirtyFiles.length}`), colorize(theme, "dim", ` · ${shortPlanLabel(d.activePlan)}`), colorize(theme, "dim", gate), colorize(theme, d.reviewStale ? "warning" : "dim", review)].join("");
+  const parts = [workflowBadge(d.severity), `d${d.dirtyFiles.length}`];
+  if (d.activePlan) parts.push(shortPlanLabel(d.activePlan));
+  if (d.lastGateName) parts.push(`gate:${d.lastGateStatus ?? "?"}`);
+  if (d.lastReviewVerdict) parts.push(`rev:${d.reviewStale ? "stale" : "ok"}`);
+  return colorize(theme, sevColor, parts.join(" "));
 }
 
 export function renderWorkflowWidget(root: string, analysis: ReturnType<typeof analyze>, theme?: WorkflowUi["theme"]): string[] {

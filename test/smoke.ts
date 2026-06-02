@@ -491,12 +491,12 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   statuses["workflow-watcher"] = "";
   widgets["workflow-watcher"] = [];
   await hooks.session_start[0]({ cwd: root }, { cwd: root, hasUI: true, ui } as never);
-  assert(statuses["workflow-watcher"].startsWith("WF"), "session_start should set workflow status line");
-  assert(widgets["workflow-watcher"].some((line) => line.includes("next")), "session_start should set workflow widget with next action");
+  assert(statuses["workflow-watcher"].startsWith("wf:"), "session_start should set compact workflow status line");
+  assert(!("workflow-watcher" in widgets), "session_start should not set an intrusive workflow widget");
   messages.length = 0;
   await commands.workflow.handler("note OK_TO_MARK_DONE tui smoke", { cwd: root, hasUI: true, ui });
-  assert(statuses["workflow-watcher"].includes("review OK_TO_MARK_DONE"), "/workflow note should refresh workflow status line");
-  assert(widgets["workflow-watcher"].some((line) => line.includes("evidence")), "/workflow note should refresh evidence widget");
+  assert(statuses["workflow-watcher"].includes("rev:"), "/workflow note should refresh compact review status");
+  assert(!("workflow-watcher" in widgets), "/workflow note should keep the workflow widget cleared");
 }
 
 {
