@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import workflowWatcher from "../index.ts";
+import { setWorkflowWatcherEnabled } from "../src/toggle.ts";
 
 type Tool = { name: string; execute: (id: string, params: Record<string, unknown>) => Promise<unknown> };
 type Hook = (event: Record<string, unknown>, ctx?: Record<string, unknown>) => Promise<unknown> | unknown;
@@ -75,6 +76,10 @@ function repo(): string {
   git(["config", "user.email", "watcher@example.invalid"], root);
   git(["config", "user.name", "Workflow Watcher"], root);
   return root;
+}
+
+function enableWatcher(root: string): void {
+  setWorkflowWatcherEnabled(root, true);
 }
 
 function validContract(overrides: Record<string, unknown> = {}) {
@@ -265,6 +270,23 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   await commands.workflow.handler("new-plan", { cwd: repo() });
   assert(userMessages.length === 0, "/workflow new-plan without a goal should not send a user message");
   assert(messages[0]?.content.includes("alias: /workflow new-plan <goal>"), "/workflow new-plan without a goal should show namespaced alias usage");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
+  statuses["workflow-watcher"] = "WF stale";
+  widgets["workflow-watcher"] = ["stale widget"];
+  await hooks.session_start[0]({ cwd: root }, { cwd: root, hasUI: true, ui } as never);
+  assert(!("workflow-watcher" in statuses), "default-off session_start should clear stale status line");
+  assert(!("workflow-watcher" in widgets), "default-off session_start should clear stale widget");
+  const beforeStart = await hooks.before_agent_start[0]({ cwd: root });
+  assert(beforeStart === undefined, "default-off workflow watcher should not inject before-agent nudges");
+  const toolGuard = await hooks.tool_call[0]({ cwd: root, toolName: "terminal", args: { command: "git commit -m nope" } });
+  assert(toolGuard === undefined, "default-off workflow watcher should not block tool calls");
+  messages.length = 0;
+  await commands.workflow.handler("toggle", { cwd: root, hasUI: true, ui });
+  assert(messages[0]?.content.includes("workflow watcher: on"), "/workflow toggle with no args should enable from default off");
 }
 
 {
@@ -464,6 +486,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   statuses["workflow-watcher"] = "";
   widgets["workflow-watcher"] = [];
@@ -789,6 +812,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   writeFileSync(join(root, "file.txt"), "one\n");
   git(["add", "file.txt"], root);
@@ -806,6 +830,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract({ ownership: { highRiskPaths: [], generatedPaths: [], lockfiles: ["pnpm-lock.yaml"] } }));
   writeFileSync(join(root, "file.txt"), "one\n");
   git(["add", "file.txt"], root);
@@ -833,6 +858,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract({ ownership: { highRiskPaths: ["file.txt"], generatedPaths: [], lockfiles: ["pnpm-lock.yaml"] } }));
   writeFileSync(join(root, "file.txt"), "one\n"); git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
   writeFileSync(join(root, "file.txt"), "user dirty\n");
@@ -845,6 +871,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract({ ownership: { highRiskPaths: ["danger.txt"], generatedPaths: [], lockfiles: ["pnpm-lock.yaml"] } }));
   writeFileSync(join(root, "file.txt"), "one\n");
   writeFileSync(join(root, "danger.txt"), "one\n");
@@ -862,6 +889,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   writeFileSync(join(root, "file.txt"), "one\n");
   git(["add", "file.txt"], root);
@@ -875,6 +903,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   await watch(root, "preflight");
   writeFileSync(join(root, "file.txt"), "agent-created dirty file\n");
@@ -885,6 +914,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   writeFileSync(join(root, "dirty.txt"), "one\n");
   writeFileSync(join(root, "clean.txt"), "one\n");
@@ -900,6 +930,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   await watch(root, "preflight");
   const hook = hooks.tool_call[0];
@@ -910,6 +941,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   await watch(root, "preflight");
   const hook = hooks.tool_call[0];
@@ -920,6 +952,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   writeFileSync(join(root, "clean.txt"), "one\n");
   git(["add", "clean.txt"], root);
@@ -932,6 +965,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract({ ownership: { highRiskPaths: ["infra/**", "SECURITY.md"], generatedPaths: [], lockfiles: ["pnpm-lock.yaml"] } }));
   await watch(root, "preflight");
   const hook = hooks.tool_call[0];
@@ -945,6 +979,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract({ ownership: { highRiskPaths: [], generatedPaths: [], lockfiles: ["pnpm-lock.yaml", "**/package-lock.json"] } }));
   await watch(root, "preflight");
   const hook = hooks.tool_call[0];
@@ -955,6 +990,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract({ ownership: { highRiskPaths: [], generatedPaths: ["src/generated/**"], lockfiles: ["pnpm-lock.yaml"] } }));
   await watch(root, "preflight");
   const hook = hooks.tool_call[0];
@@ -965,6 +1001,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   writeFileSync(join(root, "space name.txt"), "one\n");
   git(["add", "space name.txt"], root);
@@ -1024,6 +1061,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract({
     commands: { ok: { cmd: "node -e \"process.exit(0)\"", source: "fixture", confidence: "verified" } },
     gates: {
@@ -1072,6 +1110,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   const hook = hooks.tool_call[0];
   const blocked = await hook({ toolName: "bash", input: { command: "git commit -m test" }, cwd: root }) as { block?: boolean; reason?: string } | undefined;
@@ -1081,6 +1120,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   const hook = hooks.tool_call[0];
   const namespacedCommit = await hook({ toolName: "functions.terminal", input: { command: "git commit -m test" }, cwd: root }) as { block?: boolean } | undefined;
@@ -1222,6 +1262,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   writeFileSync(join(root, "file.txt"), "one\n");
   git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
@@ -1237,6 +1278,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract());
   const hook = hooks.tool_call[0];
   for (const command of [
@@ -1274,6 +1316,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  enableWatcher(root);
   writeContract(root, validContract({ ownership: { highRiskPaths: ["secrets/**"], generatedPaths: [], lockfiles: ["pnpm-lock.yaml"] } }));
   await watch(root, "preflight");
   const hook = hooks.tool_call[0];

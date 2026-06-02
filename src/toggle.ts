@@ -11,12 +11,12 @@ export function workflowTogglePath(root: string): string {
 
 export function workflowWatcherEnabled(root: string): boolean {
   const path = workflowTogglePath(root);
-  if (!existsSync(path)) return true;
+  if (!existsSync(path)) return false;
   try {
     const config = JSON.parse(readFileSync(path, "utf8")) as ToggleConfig;
-    return config.enabled !== false;
+    return config.enabled === true;
   } catch {
-    return true;
+    return false;
   }
 }
 

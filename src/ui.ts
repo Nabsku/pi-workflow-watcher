@@ -36,7 +36,7 @@ export function formatHelp(): string {
     "- /workflow plan [path-or-slug] — show or pin the active plan.",
     "- /workflow shape-plan <goal> — start the built-in shape-plan flow without installing a prompt template.",
     "- /workflow new-plan <goal> — alias for /workflow shape-plan.",
-    "- /workflow toggle [on|off] — enable/disable automatic nudges, status UI, and hook guards for this repo.",
+    "- /workflow toggle [on|off] — enable/disable automatic nudges, status UI, and hook guards for this repo; default is off.",
     "- /workflow help — show this help.",
     "",
     "Examples:",

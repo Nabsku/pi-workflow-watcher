@@ -5,6 +5,7 @@
 ### Added
 
 - Added `workflow_complete`, an agent-callable finalizer that only succeeds when the active plan has no open checklist tasks and trusted review plus gate evidence is fresh for the current diff.
+- Changed repo automation to default off; users must run `/workflow toggle on` before automatic nudges, TUI surfaces, and hook guards activate.
 
 ## 0.2.0 - 2026-05-31
 

@@ -27,13 +27,14 @@ Expected loaded commands/tools:
 
 If `/workflow help` is unavailable, restart Pi, confirm the package is in Pi's extension/package config, and check that the installed package includes `index.ts` plus the `pi.extensions` entry in `package.json`.
 
-The watcher can be noisy if it is active for casual sessions. Use `/workflow toggle off` in a repo to disable automatic startup nudges, remove TUI status/widget surfaces, and disable hook guardrails for that repo. Use `/workflow toggle on` to re-enable them. The toggle is stored in `.pi/workflow-watcher.json`.
+Workflow automation is **off by default** for each repo. Use `/workflow toggle on` when you intentionally want the watcher to start nudging, showing TUI surfaces, and enforcing hook guardrails. Use `/workflow toggle off` to quiet it again. The toggle is stored in `.pi/workflow-watcher.json`.
 
 ## Quickstart: create a workflow
 
 The easiest public entry ramp is the built-in namespaced command registered by this plugin:
 
 ```text
+/workflow toggle on
 /workflow shape-plan <goal>
 ```
 

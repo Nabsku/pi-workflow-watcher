@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import workflowWatcher from "../index.ts";
+import { setWorkflowWatcherEnabled } from "../src/toggle.ts";
 
 type Tool = { name: string; execute: (id: string, params: Record<string, unknown>) => Promise<unknown> };
 type Hook = (event: Record<string, unknown>, ctx?: Record<string, unknown>) => Promise<unknown> | unknown;
@@ -98,6 +99,7 @@ async function toolCallGuard(root: string, command: string) {
 }
 
 const root = repo();
+setWorkflowWatcherEnabled(root, true);
 writeContract(root);
 writeFileSync(join(root, "package.json"), `${JSON.stringify({ scripts: { test: "node -e \"process.exit(0)\"", typecheck: "node -e \"process.exit(0)\"", build: "node -e \"process.exit(0)\"" } }, null, 2)}\n`);
 mkdirSync(join(root, "src"), { recursive: true });
