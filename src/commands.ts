@@ -72,7 +72,7 @@ export function registerWorkflowCommand(pi: ExtensionAPI) {
       if (sub === "review-prompt") {
         const modeIndex = rest.findIndex((item) => item === "--mode");
         const mode = modeIndex >= 0 ? rest[modeIndex + 1] : undefined;
-        const files = rest.filter((item, index) => item !== "--mode" && index !== modeIndex + 1);
+        const files = rest.filter((item, index) => item !== "--mode" && (modeIndex < 0 || index !== modeIndex + 1));
         if (files.length === 0) { send("usage: /workflow review-prompt [--mode commit|slice|present] <file> [...file]"); return; }
         const d = reviewPacketDetails(root, { files, mode });
         send(d.packet, d);

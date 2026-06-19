@@ -111,10 +111,24 @@ const beforeEvidence = await toolCallGuard(root, "git commit -m e2e");
 assert(beforeEvidence?.block === true, "commit should be blocked before trusted review and gate evidence");
 assert(beforeEvidence.reason?.includes("missing current trusted review verdict"), `commit blocker should explain missing trusted review evidence, got: ${beforeEvidence.reason ?? "none"}`);
 
-const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: ["src/app.ts"], mode: "commit" }) as { content: Array<{ text: string }>; details: { requestError?: string } };
-assert(!packet.details.requestError, `review packet should create request: ${packet.details.requestError ?? ""}`);
+const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: ["src/app.ts"], mode: "commit" }) as { content: Array<{ text: string }>; details: { requestError?: string; request?: { id: string; repo: string; diffHash: string; expectedFiles: string[]; allowedVerdicts: string[] } } };
+assert(!packet.details.requestError && packet.details.request, `review packet should create request: ${packet.details.requestError ?? ""}`);
+const request = packet.details.request;
+const reviewedEvidence = {
+  schema: "pi-workflow-review-evidence/v1",
+  reviewRequestId: request.id,
+  repo: request.repo,
+  reviewedDiffHash: request.diffHash,
+  reviewedAt: new Date().toISOString(),
+  reviewedFiles: request.expectedFiles,
+  reviewer: { role: "reviewer", name: "e2e", source: "test" },
+  verdict: request.allowedVerdicts[0],
+  criteria: [{ id: "e2e", status: "satisfied", evidence: "reviewed current diff" }],
+  verification: [],
+  residualRisks: [],
+};
 mkdirSync(join(root, ".pi/runs"), { recursive: true });
-writeFileSync(join(root, ".pi/runs/review.md"), packet.content[0].text);
+writeFileSync(join(root, ".pi/runs/review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(reviewedEvidence)}\n\`\`\`\n`);
 const importResult = await tool("workflow_import_review_evidence").execute("accept", {
   cwd: root,
   artifactPath: ".pi/runs/review.md",

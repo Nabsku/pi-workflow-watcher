@@ -149,9 +149,10 @@ export function reviewPacketDetails(root: string, params: { files?: unknown; mod
     "- Evidence artifact must include one workflow-review-evidence JSON fence with schema pi-workflow-review-evidence/v1 for the current diffHash.",
     "- Import trusted evidence with workflow_import_review_evidence. Trusted state source is reviewer_evidence. Manual notes are recorded context, not trusted approval.",
     "",
-    "## workflow-review-evidence template",
-    request ? "```workflow-review-evidence" : "```text",
-    request ? reviewEvidenceTemplate(root, request) : "No template: create the packet with explicit files first.",
+    "## workflow-review-evidence draft (not importable)",
+    "Reviewer/oracle: after review, copy this JSON into a workflow-review-evidence fenced block and fill reviewedAt/reviewer/evidence fields.",
+    "```json",
+    request ? reviewEvidenceTemplate(root, request) : "No draft: create the packet with explicit files first.",
     "```",
   ];
   const packet = packetLines.join("\n");

@@ -16,8 +16,15 @@ export function evidenceDetails(root: string, contract: WorkflowContract | null)
   const state = readState(root, contract); const snap = diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, contract) }); const commitReady = commitEvidenceCurrent(root, contract);
   const review = state.lastReviewVerdict; const gate = state.lastGateResult;
   const reviewFresh = !!review && review.diffHash === snap.diffHash && review.stale !== true; const gateFresh = !!gate && gate.diffHash === snap.diffHash && gate.status === "pass";
-  const missing: string[] = []; if (!reviewFresh) missing.push("trusted reviewer/oracle evidence"); if (!gateFresh) missing.push("current workflow_gate beforeCommit/final pass"); if (state.checkpoint?.diffHash !== snap.diffHash) missing.push("current diff checkpoint");
-  return { root, statePath: stateFile(root, contract), currentDiffHash: snap.diffHash, commitReady, review, reviewTrusted: !!review?.source, reviewFresh, reviewVerdictOk: !!review?.verdict?.startsWith("OK_TO_"), manualNote: state.lastNote, manualNoteStatus: state.lastNote ? "breadcrumb" : "none", gate, gateFresh, gateTrusted: gate?.source === "workflow_gate", checkpointFresh: state.checkpoint?.diffHash === snap.diffHash, missing, nextActions: missing.length ? ["Import fresh review evidence and run required gate."] : ["Evidence is current; proceed per user commit policy."] };
+  const reviewTrusted = review?.source === "reviewer_evidence"; const gateTrusted = gate?.source === "workflow_gate";
+  const gateNameOk = gate?.gate === "beforeCommit" || gate?.gate === "final";
+  const reviewVerdictOk = review?.verdict === "OK_TO_COMMIT";
+  const missing: string[] = [];
+  if (!reviewFresh || !reviewTrusted) missing.push("trusted reviewer/oracle evidence");
+  if (reviewFresh && reviewTrusted && !reviewVerdictOk) missing.push("commit review verdict OK_TO_COMMIT");
+  if (!gateFresh || !gateTrusted || !gateNameOk) missing.push("current workflow_gate beforeCommit/final pass");
+  if (state.checkpoint?.diffHash !== snap.diffHash) missing.push("current diff checkpoint");
+  return { root, statePath: stateFile(root, contract), currentDiffHash: snap.diffHash, commitReady, review, reviewTrusted, reviewFresh, reviewVerdictOk, manualNote: state.lastNote, manualNoteStatus: state.lastNote ? "breadcrumb" : "none", gate, gateFresh, gateTrusted, checkpointFresh: state.checkpoint?.diffHash === snap.diffHash, missing, nextActions: missing.length ? ["Import fresh commit review evidence and run required gate."] : ["Evidence is current; proceed per user commit policy."] };
 }
 export function formatEvidence(d: EvidenceDetails): string {
   const review = d.review ? `${d.review.verdict} at ${d.review.at} source=${d.review.source ?? "unknown"} trusted=${d.reviewTrusted ? "yes" : "no"} fresh=${d.reviewFresh ? "yes" : "no"} verdict-ok=${d.reviewVerdictOk ? "yes" : "no"} diffHash=${d.review.diffHash}` : "none";
