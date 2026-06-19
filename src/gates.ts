@@ -9,7 +9,7 @@ import type { AcceptanceImportDetails, AgentToolResult, CheckpointMode, CommandS
 import { textResult } from "./result.ts";
 import { cwdFrom, git, repoRoot, dirtyFiles, dirtyPath, normalizeDirtyPath, readJson, unquotePath, repoLocalPath, safeRepoLocalPath } from "./fs-git.ts";
 import { readContract, validateContractSchema, validateContractSemantics, normalizePlanPath, starterContract, severity, analyze, isObject } from "./contract.ts";
-import { runsDirResolution, runsDir, watcherLog, ledgerFile, stateFile, readLog, defaultState, readState, writeState, repoRelativePath, diffSnapshot, markReviewStaleIfEdited, checkpoint, commitEvidenceCurrent } from "./state.ts";
+import { runsDirResolution, runsDir, watcherLog, ledgerFile, stateFile, readLog, defaultState, readState, writeState, repoRelativePath, diffSnapshot, runtimeArtifactExcludes, markReviewStaleIfEdited, checkpoint, commitEvidenceCurrent } from "./state.ts";
 
 import { safePreview, appendLedgerEvent, safeGateCommands } from "./guard-logging.ts";
 export function truncateOutput(value: string, max = 4000): string {
@@ -78,6 +78,6 @@ export function appendGateEvidence(root: string, contract: WorkflowContract | nu
   ];
   if (details.error) lines.push(`  error=${details.error}`);
   appendFileSync(path, `${lines.join("\n")}\n`, "utf8");
-  appendLedgerEvent(root, contract, { type: "gate_run", at: new Date().toISOString(), diffHash: diffSnapshot(root).diffHash, gate: details.gate, status: details.status, source: "workflow_gate", commands: safeGateCommands(details.commands), ...(details.error ? { notePreview: safePreview(details.error) } : {}) });
+  appendLedgerEvent(root, contract, { type: "gate_run", at: new Date().toISOString(), diffHash: diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, contract) }).diffHash, gate: details.gate, status: details.status, source: "workflow_gate", commands: safeGateCommands(details.commands), ...(details.error ? { notePreview: safePreview(details.error) } : {}) });
   return path;
 }

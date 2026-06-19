@@ -7,7 +7,7 @@ import type { Finding, GateDetails, WatchDetails, WatchMode, WatchVerbosity, Wor
 import { textResult } from "./result.ts";
 import { cwdFrom, repoRoot, normalizeDirtyPath } from "./fs-git.ts";
 import { readContract, normalizePlanPath, starterContract, analyze } from "./contract.ts";
-import { stateFile, readState, writeState, diffSnapshot, runsDirResolution } from "./state.ts";
+import { stateFile, readState, writeState, diffSnapshot, runtimeArtifactExcludes, runsDirResolution } from "./state.ts";
 import { formatCompactStatus, details, formatWatch } from "./formatting.ts";
 import { evidenceDetails, formatEvidence, formatWhy, whyDetails, reviewPacketDetails, progressDetails, formatProgress, createEvidenceBundle, doctorDetails, formatDoctor } from "./evidence.ts";
 import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, importReviewEvidence, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
@@ -78,7 +78,7 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
         const details: GateDetails = { root, gate, dryRun, status: "fail", commands: resolved.commands, error: resolved.error };
         details.logPath = appendGateEvidence(root, contract, details);
         details.statePath = stateFile(root, contract);
-        const state = readState(root, contract); const snap = diffSnapshot(root);
+        const state = readState(root, contract); const snap = diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, contract) });
         state.lastGateResult = { gate, status: "fail", at: new Date().toISOString(), diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles, source: "workflow_gate" };
         writeState(root, contract, state);
         return textResult(`Workflow gate ${gate}: FAIL\n${resolved.error}\nEvidence: ${details.logPath}`, details);
@@ -93,7 +93,7 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
       const details: GateDetails = { root, gate, dryRun, status: failed ? "fail" : "pass", commands: runs };
       details.logPath = appendGateEvidence(root, contract, details);
       details.statePath = stateFile(root, contract);
-      const state = readState(root, contract); const snap = diffSnapshot(root);
+      const state = readState(root, contract); const snap = diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, contract) });
       state.lastGateResult = { gate, status: details.status === "pass" ? "pass" : "fail", at: new Date().toISOString(), diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles, source: "workflow_gate" };
       if (details.status === "pass") state.checkpoint = { at: new Date().toISOString(), mode: "gate", diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles };
       writeState(root, contract, state);

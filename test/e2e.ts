@@ -90,9 +90,6 @@ writeFileSync(join(root, "package.json"), `${JSON.stringify({ scripts: { test: "
 writeFileSync(join(root, ".gitignore"), "review.md\n");
 mkdirSync(join(root, "src"), { recursive: true });
 writeFileSync(join(root, "src/app.ts"), "export const value = 1;\n");
-git(["add", "."], root);
-git(["commit", "-m", "baseline"], root);
-
 writeFileSync(join(root, ".pi/plans/e2e.md"), [
   "# E2E plan",
   "- [x] baseline ready OK_TO_MARK_DONE",
@@ -100,6 +97,9 @@ writeFileSync(join(root, ".pi/plans/e2e.md"), [
   "- [ ] prepare commit evidence",
   "",
 ].join("\n"));
+git(["add", "."], root);
+git(["commit", "-m", "baseline"], root);
+
 
 const initialProgress = await tool("workflow_progress").execute("progress", { cwd: root, planPath: ".pi/plans/e2e.md" }) as { details: { currentSlice?: string; counts: { open?: number; completed?: number; total?: number } } };
 assert(initialProgress.details.currentSlice === "ship watched change", "progress should identify the first open slice");
@@ -111,7 +111,8 @@ const beforeEvidence = await toolCallGuard(root, "git commit -m e2e");
 assert(beforeEvidence?.block === true, "commit should be blocked before trusted review and gate evidence");
 assert(beforeEvidence.reason?.includes("missing current trusted review verdict"), `commit blocker should explain missing trusted review evidence, got: ${beforeEvidence.reason ?? "none"}`);
 
-const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: ["src/app.ts"], mode: "commit" }) as { content: Array<{ text: string }> };
+const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: ["src/app.ts"], mode: "commit" }) as { content: Array<{ text: string }>; details: { requestError?: string } };
+assert(!packet.details.requestError, `review packet should create request: ${packet.details.requestError ?? ""}`);
 mkdirSync(join(root, ".pi/runs"), { recursive: true });
 writeFileSync(join(root, ".pi/runs/review.md"), packet.content[0].text);
 const importResult = await tool("workflow_import_review_evidence").execute("accept", {
@@ -120,8 +121,9 @@ const importResult = await tool("workflow_import_review_evidence").execute("acce
 }) as { details: { accepted: boolean; error?: string } };
 assert(importResult.details.accepted === true, `trusted review evidence should import for current diff: ${importResult.details.error ?? ""}`);
 
-const gate = await tool("workflow_gate").execute("gate", { cwd: root, gate: "beforeCommit" }) as { details: { status: string; gate: string } };
-assert(gate.details.gate === "beforeCommit" && gate.details.status === "pass", "beforeCommit gate should pass and persist evidence");
+messages.length = 0;
+await commands.workflow.handler("gate beforeCommit", { cwd: root });
+assert(messages[0]?.content.includes("gate beforeCommit: PASS"), "slash beforeCommit gate should pass and persist evidence");
 
 const evidence = await tool("workflow_export_evidence").execute("bundle", { cwd: root, planPath: ".pi/plans/e2e.md" }) as { details: { commitReady: boolean; bundlePath: string; evidencePath: string; missing: string[] } };
 assert(evidence.details.commitReady === true, `evidence bundle should be commit-ready, missing=${evidence.details.missing.join(",")}`);
