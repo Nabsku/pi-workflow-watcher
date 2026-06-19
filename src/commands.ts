@@ -10,7 +10,7 @@ import { readContract, normalizePlanPath, starterContract, analyze } from "./con
 import { stateFile, readState, writeState, diffSnapshot, runsDirResolution } from "./state.ts";
 import { formatCompactStatus, details, formatWatch } from "./formatting.ts";
 import { evidenceDetails, formatEvidence, formatWhy, whyDetails, reviewPacketDetails, progressDetails, formatProgress, createEvidenceBundle, doctorDetails, formatDoctor } from "./evidence.ts";
-import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, importAcceptanceEvidence, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
+import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
 import { clearWorkflowUi, refreshWorkflowUi, formatHelp } from "./ui.ts";
 import { setWorkflowWatcherEnabled, workflowTogglePath, workflowWatcherEnabled } from "./toggle.ts";
 import { sendShapePlanRequest } from "./shape-plan-command.ts";

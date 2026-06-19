@@ -5,6 +5,8 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import workflowWatcher from "../index.ts";
 import { setWorkflowWatcherEnabled } from "../src/toggle.ts";
+import { consumeReviewRequest, loadReviewRequest, parseReviewEvidenceFence, reviewFilesMatch, validateReviewCriteria, validateReviewEvidenceForRequest, writeReviewRequest } from "../src/review-evidence.ts";
+import type { ReviewEvidence, ReviewRequest } from "../src/types.ts";
 
 type Tool = { name: string; execute: (id: string, params: Record<string, unknown>) => Promise<unknown> };
 type Hook = (event: Record<string, unknown>, ctx?: Record<string, unknown>) => Promise<unknown> | unknown;
@@ -134,7 +136,55 @@ function readLedger(root: string, runsDir = ".pi/runs"): Array<Record<string, un
   return readFileSync(join(root, runsDir, "workflow-watcher.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
-function markLastReviewTrusted(root: string, source: "reviewer_tool" | "oracle_tool" = "reviewer_tool") {
+function reviewRequestFixture(root: string, overrides: Partial<ReviewRequest> = {}): ReviewRequest {
+  return {
+    schema: "pi-workflow-review-request/v1",
+    id: "rw-smoke",
+    createdAt: "2026-06-19T00:00:00.000Z",
+    repo: root,
+    diffHash: "diff-smoke",
+    expectedFiles: ["src/app.ts", "README.md"],
+    mode: "commit",
+    allowedVerdicts: ["OK_TO_COMMIT"],
+    status: "pending",
+    consumedAt: null,
+    ...overrides,
+  };
+}
+
+function reviewEvidenceFixture(root: string, overrides: Partial<ReviewEvidence> = {}): ReviewEvidence {
+  return {
+    schema: "pi-workflow-review-evidence/v1",
+    reviewRequestId: "rw-smoke",
+    repo: root,
+    reviewedDiffHash: "diff-smoke",
+    reviewedAt: "2026-06-19T00:00:00.000Z",
+    reviewedFiles: ["README.md", "src/app.ts"],
+    reviewer: { role: "reviewer", name: "smoke", source: "test" },
+    verdict: "OK_TO_COMMIT",
+    criteria: [{ id: "scope", status: "satisfied", evidence: "reviewed expected files" }],
+    verification: [],
+    residualRisks: [],
+    ...overrides,
+  };
+}
+
+function commitBaselineWithReviewArtifactIgnored(root: string): void {
+  writeFileSync(join(root, ".gitignore"), "review.md\n");
+  writeFileSync(join(root, "file.txt"), "one\n");
+  git(["add", ".gitignore", "file.txt"], root);
+  git(["commit", "-m", "init"], root);
+}
+
+function writeReviewEvidenceArtifact(root: string, evidence: ReviewEvidence, bodyPrefix = "Review clean.\n\n"): void {
+  writeFileSync(join(root, "review.md"), `${bodyPrefix}\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
+}
+
+async function importReviewEvidenceArtifact(root: string): Promise<{ details: { accepted: boolean; source?: string; diffHash?: string; error?: string } }> {
+  return await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: "review.md" }) as { details: { accepted: boolean; source?: string; diffHash?: string; error?: string } };
+}
+
+function markLastReviewTrusted(root: string, source: "reviewer_evidence" = "reviewer_evidence") {
   const path = join(root, ".pi/runs/workflow-state.json");
   const state = JSON.parse(readFileSync(path, "utf8"));
   if (!state.lastReviewVerdict) throw new Error("missing review verdict to mark trusted");
@@ -142,7 +192,8 @@ function markLastReviewTrusted(root: string, source: "reviewer_tool" | "oracle_t
   writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`);
 }
 
-for (const name of ["workflow_watch", "workflow_next", "workflow_init", "workflow_approve_dirty_overlap", "workflow_gate", "workflow_progress", "workflow_complete", "workflow_export_evidence", "workflow_note", "workflow_import_acceptance", "workflow_review_packet", "workflow_why"]) tool(name);
+for (const name of ["workflow_watch", "workflow_next", "workflow_init", "workflow_approve_dirty_overlap", "workflow_gate", "workflow_progress", "workflow_complete", "workflow_export_evidence", "workflow_note", "workflow_import_review_evidence", "workflow_review_packet", "workflow_why"]) tool(name);
+assert(!tools.some((candidate) => candidate.name === "workflow_import_acceptance"), "workflow_import_acceptance must not be registered");
 assert(commands.workflow, "workflow slash command not registered");
 assert(!commands["shape-plan"], "shape-plan should not be registered as a top-level slash command");
 assert(!commands["new-plan"], "new-plan should not be registered as a top-level slash command");
@@ -208,6 +259,54 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(prompt.includes("Requires the public `pi-subagents` extension"), "shape-plan starter should reference the actual public subagent dependency");
   assert(prompt.includes("If `pi-subagents` is unavailable, stop after repo inspection"), "shape-plan starter should stop instead of silently degrading without pi-subagents");
   assert(prompt.includes("Mandatory workflow steps"), "shape-plan starter should make the core workflow steps mandatory");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
+  const evidence = reviewEvidenceFixture(root);
+  const parsed = parseReviewEvidenceFence(`review complete\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\``);
+  assert(parsed.ok === true && parsed.evidence.reviewRequestId === "rw-smoke", "workflow-review-evidence fence should parse valid v1 JSON");
+  assert(parseReviewEvidenceFence("review complete OK_TO_COMMIT").ok === false, "prose-only review evidence must reject");
+  const malformed = parseReviewEvidenceFence("```workflow-review-evidence\n{bad json}\n```");
+  assert(malformed.ok === false && malformed.error.includes("malformed"), "malformed review evidence JSON should be actionable");
+  const unknownSchema = parseReviewEvidenceFence(`\`\`\`workflow-review-evidence\n${JSON.stringify({ ...evidence, schema: "unknown" })}\n\`\`\``);
+  assert(unknownSchema.ok === false && unknownSchema.error.includes("expected pi-workflow-review-evidence/v1"), "unknown review evidence schema should reject");
+  const duplicate = parseReviewEvidenceFence(`\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\``);
+  assert(duplicate.ok === false && duplicate.error.includes("exactly one"), "duplicate review evidence fences should reject");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
+  const request = reviewRequestFixture(root);
+  const requestPath = writeReviewRequest(root, request);
+  assert(requestPath.endsWith(".pi/runs/review-requests/rw-smoke.json"), "review request should be stored under runsDir review-requests");
+  const loaded = loadReviewRequest(root, "rw-smoke");
+  assert(loaded.request?.id === "rw-smoke", "pending review request should load");
+  const consumed = consumeReviewRequest(root, request, "2026-06-19T00:01:00.000Z");
+  assert(consumed.request.status === "consumed" && consumed.request.consumedAt, "consumeReviewRequest should mark request consumed");
+  const reloaded = loadReviewRequest(root, "rw-smoke");
+  assert(reloaded.error?.includes("not pending"), "consumed review request should not load as pending");
+  assert(loadReviewRequest(root, "../escape").error?.includes("only letters"), "review request id should reject path escape characters");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
+  const request = reviewRequestFixture(root);
+  const evidence = reviewEvidenceFixture(root);
+  const valid = validateReviewEvidenceForRequest(root, evidence, request);
+  assert(valid.ok === true && valid.reviewedFiles?.join(",") === "README.md,src/app.ts", "review evidence should validate against matching pending request");
+  assert(reviewFilesMatch(root, ["src/app.ts", "README.md"], ["README.md", "src/app.ts"]).ok === true, "reviewed files should match independent of order");
+  assert(reviewFilesMatch(root, ["../outside"], ["README.md"]).error?.includes("escapes repo"), "reviewed files should reject repo escape");
+  assert(validateReviewEvidenceForRequest(root, { ...evidence, repo: join(root, "other") }, request).error?.includes("repo"), "repo mismatch should reject");
+  assert(validateReviewEvidenceForRequest(root, { ...evidence, reviewedDiffHash: "other" }, request).error?.includes("diffHash"), "diff hash mismatch should reject");
+  assert(validateReviewEvidenceForRequest(root, { ...evidence, reviewedFiles: ["README.md"] }, request).error?.includes("reviewedFiles"), "reviewed files mismatch should reject");
+  assert(validateReviewEvidenceForRequest(root, { ...evidence, verdict: "OK_TO_PRESENT" }, request).error?.includes("not allowed"), "verdict outside request mode should reject");
+  assert(validateReviewCriteria([]).error?.includes("non-empty"), "empty criteria should reject");
+  assert(validateReviewCriteria([{ id: "optional", required: false, status: "unsatisfied" }]).ok === true, "optional unsatisfied criteria should not block");
+  assert(validateReviewCriteria([{ id: "required", status: "unsatisfied" }]).error?.includes("required criterion required"), "required unsatisfied criteria should reject");
 }
 
 {
@@ -538,7 +637,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   writeFileSync(join(root, "file.txt"), "one\n"); git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
   writeFileSync(join(root, "file.txt"), "two\n");
   await tool("workflow_note").execute("note", { cwd: root, note: "review OK_TO_COMMIT" });
-  markLastReviewTrusted(root, "oracle_tool");
+  markLastReviewTrusted(root);
   await tool("workflow_gate").execute("gate", { cwd: root, gate: "beforeCommit" });
   messages.length = 0;
   await commands.workflow.handler("evidence", { cwd: root });
@@ -569,7 +668,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(result.content[0].text.includes("Workflow complete: BLOCKED"), "workflow_complete should explain blocked completion");
   assert(result.details.blockers.includes("trusted reviewer/oracle evidence"), "workflow_complete should require trusted review evidence");
   await tool("workflow_note").execute("note", { cwd: root, note: "OK_TO_MARK_DONE final review" });
-  markLastReviewTrusted(root, "oracle_tool");
+  markLastReviewTrusted(root);
   await tool("workflow_gate").execute("gate", { cwd: root, gate: "final" });
   result = await tool("workflow_complete").execute("complete", { cwd: root, planPath: ".pi/plans/done.md" }) as unknown as typeof result;
   assert(result.details.clean === true && result.details.completedAt, "workflow_complete should succeed only when plan and evidence are clean");
@@ -595,7 +694,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   writeFileSync(join(root, "file.txt"), "one\n"); git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
   writeFileSync(join(root, "file.txt"), "two\n");
   await tool("workflow_note").execute("note", { cwd: root, note: "active plan: bundle api_key=supersecret OK_TO_COMMIT" });
-  markLastReviewTrusted(root, "reviewer_tool");
+  markLastReviewTrusted(root);
   await tool("workflow_gate").execute("gate", { cwd: root, gate: "beforeCommit" });
   const result = await tool("workflow_export_evidence").execute("bundle", { cwd: root, planPath: ".pi/plans/bundle.md" }) as { content: Array<{ text: string }>; details: { bundlePath: string; commitReady: boolean; currentDiffHash: string; missing: string[]; activeSlice?: string } };
   const body = readFileSync(result.details.bundlePath, "utf8");
@@ -1181,99 +1280,139 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 {
   const root = repo();
   writeContract(root, validContract());
-  writeFileSync(join(root, "file.txt"), "one\n");
-  git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
+  commitBaselineWithReviewArtifactIgnored(root);
   writeFileSync(join(root, "file.txt"), "two\n");
   const diffHash = fixtureDiffHash(root);
-  const result = await tool("workflow_import_acceptance").execute("accept", { cwd: root, result: { agent: "reviewer", finalOutput: `Review clean.\n\n\`\`\`acceptance-report\n${JSON.stringify({ criteriaSatisfied: [{ id: "criterion-1", status: "satisfied", evidence: "reviewed diff" }], reviewFindings: [], residualRisks: [], provenance: { diffHash } })}\n\`\`\``, acceptance: { status: "attested", childReport: { criteriaSatisfied: [{ id: "criterion-1", status: "satisfied", evidence: "reviewed diff" }], provenance: { diffHash } }, runtimeChecks: [] } } }) as { details: { accepted: boolean; source?: string } };
-  assert(result.details.accepted === true, "valid reviewer acceptance should import");
+  writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["file.txt"] }));
+  const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] });
+  writeReviewEvidenceArtifact(root, evidence);
+  const result = await importReviewEvidenceArtifact(root);
+  assert(result.details.accepted === true, `valid workflow review evidence should import: ${result.details.error ?? ""}`);
+  assert(result.details.source === "reviewer_evidence", "valid workflow review evidence should be trusted as reviewer_evidence");
+  assert(result.details.diffHash === diffHash, "import should record current diff hash");
   const state = readStateFile(root);
-  assert(state.lastReviewVerdict?.source === "reviewer_tool", "valid reviewer acceptance should create trusted reviewer_tool evidence");
+  assert(state.lastReviewVerdict?.source === "reviewer_evidence" && state.lastReviewVerdict.diffHash === diffHash, "import should persist reviewer_evidence state for current diff");
+  const request = JSON.parse(readFileSync(join(root, ".pi/runs/review-requests/rw-smoke.json"), "utf8"));
+  assert(request.status === "consumed" && request.consumedAt, "successful import should consume review request");
 }
 
 {
   const root = repo();
   writeContract(root, validContract());
-  writeFileSync(join(root, "file.txt"), "one\n");
-  git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
+  commitBaselineWithReviewArtifactIgnored(root);
   writeFileSync(join(root, "file.txt"), "two\n");
   const diffHash = fixtureDiffHash(root);
-  const result = await tool("workflow_import_acceptance").execute("accept", { cwd: root, result: { agent: "reviewer", finalOutput: `\`\`\`acceptance-report\n${JSON.stringify({ criteriaSatisfied: [{ id: "criterion-1", status: "satisfied" }], provenance: { diffHash } })}\n\`\`\``, acceptance: { status: "checked", childReport: { criteriaSatisfied: [{ id: "criterion-1", status: "satisfied" }], provenance: { diffHash } }, runtimeChecks: [{ status: "timeout" }] } } }) as { details: { accepted: boolean; error?: string } };
-  assert(result.details.accepted === false, "failed/timed-out runtime checks must reject acceptance import");
-  assert(result.details.error?.includes("failed runtime checks"), "runtime check rejection should be explicit");
+  writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["file.txt"] }));
+  const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] });
+  writeReviewEvidenceArtifact(root, evidence, "");
+  const first = await importReviewEvidenceArtifact(root) as { details: { accepted: boolean } };
+  assert(first.details.accepted === true, "first review evidence import should succeed");
+  const second = await importReviewEvidenceArtifact(root);
+  assert(second.details.accepted === false && second.details.error?.includes("not pending"), "consumed review request must reject second import");
 }
 
 {
-  const root = repo();
-  writeContract(root, validContract());
-  writeFileSync(join(root, "file.txt"), "one\n");
-  git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
-  writeFileSync(join(root, "file.txt"), "two\n");
-  const diffHash = fixtureDiffHash(root);
-  const result = await tool("workflow_import_acceptance").execute("accept", { cwd: root, result: { agent: "reviewer", finalOutput: `ACCEPTANCE_REPORT: ${JSON.stringify({ provenance: { diffHash } })}` } }) as { details: { accepted: boolean } };
-  assert(result.details.accepted === false, "unfenced/manual acceptance-looking report must not import");
-  assert(!existsSync(join(root, ".pi/runs/workflow-state.json")) || !readStateFile(root).lastReviewVerdict, "rejected manual report must not create trusted evidence");
-}
+  const makeFixture = () => {
+    const root = repo();
+    writeContract(root, validContract());
+    commitBaselineWithReviewArtifactIgnored(root);
+    writeFileSync(join(root, "file.txt"), "two\n");
+    const diffHash = fixtureDiffHash(root);
+    return { root, diffHash };
+  };
 
-{
-  const root = repo();
-  writeContract(root, validContract());
-  writeFileSync(join(root, "file.txt"), "one\n");
-  git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
-  writeFileSync(join(root, "file.txt"), "two\n");
-  const diffHash = fixtureDiffHash(root);
-  const result = await tool("workflow_import_acceptance").execute("accept", { cwd: root, result: { agent: "reviewer", finalOutput: `\`\`\`acceptance-report\n${JSON.stringify({ criteriaSatisfied: [], provenance: { diffHash } })}\n\`\`\`` } }) as { details: { accepted: boolean; error?: string } };
-  assert(result.details.accepted === false, "acceptance report without satisfied criteria must not import");
-  assert(result.details.error?.includes("no satisfied criteria"), "missing criteria rejection should be explicit");
-}
-
-{
-  const root = repo();
-  writeContract(root, validContract());
-  const result = await tool("workflow_import_acceptance").execute("accept", { cwd: root, result: { details: { results: [] }, acceptance: { status: "reviewed" } } }) as { details: { accepted: boolean } };
-  assert(result.details.accepted === false, "zero-child aggregate must not fabricate trusted evidence");
-}
-
-{
-  const root = repo();
-  writeContract(root, validContract());
-  writeFileSync(join(root, "file.txt"), "one\n");
-  git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
-  writeFileSync(join(root, "file.txt"), "two\n");
-  const diffHash = fixtureDiffHash(root);
-  const finalOutput = `\`\`\`acceptance-report\n${JSON.stringify({ criteriaSatisfied: [{ id: "criterion-1", status: "satisfied" }], provenance: { diffHash } })}\n\`\`\``;
-  const result = await tool("workflow_import_acceptance").execute("accept", { cwd: root, result: { kind: "dynamic-aggregate", agent: "reviewer", finalOutput } }) as { details: { accepted: boolean } };
-  assert(result.details.accepted === false, "dynamic aggregate-shaped result must not import as child evidence");
-}
-
-{
-  const root = repo();
-  writeContract(root, validContract());
-  writeFileSync(join(root, "file.txt"), "one\n");
-  git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
-  writeFileSync(join(root, "file.txt"), "two\n");
-  const staleHash = fixtureDiffHash(root);
-  writeFileSync(join(root, "file.txt"), "three\n");
-  const currentHash = fixtureDiffHash(root);
-  const finalOutput = `\`\`\`acceptance-report\n${JSON.stringify({ criteriaSatisfied: [{ id: "criterion-1", status: "satisfied" }], provenance: { diffHash: staleHash } })}\n\`\`\``;
-  const result = await tool("workflow_import_acceptance").execute("accept", { cwd: root, result: { agent: "reviewer", provenance: { diffHash: currentHash }, finalOutput } }) as { details: { accepted: boolean } };
-  assert(result.details.accepted === false, "wrapper diffHash must not override stale child report provenance");
+  {
+    const { root } = makeFixture();
+    writeFileSync(join(root, "review.md"), "Review clean. OK_TO_COMMIT\n");
+    const result = await importReviewEvidenceArtifact(root);
+    assert(result.details.accepted === false && result.details.error?.includes("missing workflow-review-evidence"), "prose-only tool import must reject");
+  }
+  {
+    const { root, diffHash } = makeFixture();
+    const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] });
+    writeFileSync(join(root, "review.md"), `\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
+    const result = await importReviewEvidenceArtifact(root);
+    assert(result.details.accepted === false && result.details.error?.includes("exactly one"), "duplicate workflow-review-evidence fences must reject");
+  }
+  {
+    const { root } = makeFixture();
+    writeFileSync(join(root, "review.md"), "```workflow-review-evidence\n{bad json}\n```\n");
+    const result = await importReviewEvidenceArtifact(root);
+    assert(result.details.accepted === false && result.details.error?.includes("malformed"), "malformed workflow-review-evidence JSON must reject");
+  }
+  {
+    const { root, diffHash } = makeFixture();
+    const evidence = { ...reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] }), schema: "unknown" };
+    writeFileSync(join(root, "review.md"), `\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
+    const result = await importReviewEvidenceArtifact(root);
+    assert(result.details.accepted === false && result.details.error?.includes("expected pi-workflow-review-evidence/v1"), "unknown review evidence schema must reject");
+  }
+  {
+    const { root, diffHash } = makeFixture();
+    writeReviewEvidenceArtifact(root, reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] }), "");
+    const result = await importReviewEvidenceArtifact(root);
+    assert(result.details.accepted === false && result.details.error?.includes("not pending"), "missing review request must reject");
+  }
+  {
+    const { root, diffHash } = makeFixture();
+    writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["file.txt"] }));
+    writeReviewEvidenceArtifact(root, reviewEvidenceFixture(root, { repo: join(root, "other"), reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] }), "");
+    const result = await importReviewEvidenceArtifact(root);
+    assert(result.details.accepted === false && result.details.error?.includes("repo"), "evidence repo mismatch must reject");
+  }
+  {
+    const { root, diffHash } = makeFixture();
+    writeReviewRequest(root, reviewRequestFixture(root, { repo: join(root, "other"), diffHash, expectedFiles: ["file.txt"] }));
+    writeReviewEvidenceArtifact(root, reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] }), "");
+    const result = await importReviewEvidenceArtifact(root);
+    assert(result.details.accepted === false && result.details.error?.includes("request repo"), "request repo mismatch must reject");
+  }
+  {
+    const { root, diffHash } = makeFixture();
+    writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["other.txt"] }));
+    writeReviewEvidenceArtifact(root, reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] }), "");
+    const result = await importReviewEvidenceArtifact(root);
+    assert(result.details.accepted === false && result.details.error?.includes("reviewedFiles"), "reviewedFiles mismatch must reject");
+  }
+  {
+    const { root, diffHash } = makeFixture();
+    writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["file.txt"] }));
+    writeReviewEvidenceArtifact(root, reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"], verdict: "OK_TO_PRESENT" }), "");
+    const result = await importReviewEvidenceArtifact(root);
+    assert(result.details.accepted === false && result.details.error?.includes("not allowed"), "invalid verdict must reject");
+  }
+  {
+    const { root, diffHash } = makeFixture();
+    writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["file.txt"] }));
+    writeReviewEvidenceArtifact(root, reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"], criteria: [] }), "");
+    const result = await importReviewEvidenceArtifact(root);
+    assert(result.details.accepted === false && result.details.error?.includes("non-empty"), "empty criteria must reject");
+  }
+  {
+    const { root, diffHash } = makeFixture();
+    writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["file.txt"] }));
+    writeReviewEvidenceArtifact(root, reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"], criteria: [{ id: "required", status: "unsatisfied" }] }), "");
+    const result = await importReviewEvidenceArtifact(root);
+    assert(result.details.accepted === false && result.details.error?.includes("required criterion required"), "unsatisfied required criterion must reject");
+  }
 }
 
 {
   const root = repo();
   enableWatcher(root);
   writeContract(root, validContract());
-  writeFileSync(join(root, "file.txt"), "one\n");
-  git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
+  commitBaselineWithReviewArtifactIgnored(root);
   writeFileSync(join(root, "file.txt"), "two\n");
   const staleHash = fixtureDiffHash(root);
   writeFileSync(join(root, "file.txt"), "three\n");
-  const result = await tool("workflow_import_acceptance").execute("accept", { cwd: root, result: { agent: "oracle", finalOutput: `\`\`\`acceptance-report\n${JSON.stringify({ criteriaSatisfied: [{ id: "criterion-1", status: "satisfied", evidence: "ok" }], residualRisks: [], provenance: { diffHash: staleHash } })}\n\`\`\`` } }) as { details: { accepted: boolean } };
-  assert(result.details.accepted === false, "mismatched diff hash must not import");
+  writeReviewRequest(root, reviewRequestFixture(root, { diffHash: staleHash, expectedFiles: ["file.txt"] }));
+  const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: staleHash, reviewedFiles: ["file.txt"] });
+  writeReviewEvidenceArtifact(root, evidence, "");
+  const result = await importReviewEvidenceArtifact(root);
+  assert(result.details.accepted === false && result.details.error?.includes("current repo diffHash"), "mismatched current diff hash must not import");
   const hook = hooks.tool_call[0];
   const commitBlocked = await hook({ toolName: "terminal", input: { command: "git commit -m stale" }, cwd: root }) as { block?: boolean } | undefined;
-  assert(commitBlocked?.block === true, "stale acceptance evidence must not unlock commit");
+  assert(commitBlocked?.block === true, "stale review evidence must not unlock commit");
 }
 
 {

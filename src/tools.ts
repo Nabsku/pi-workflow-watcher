@@ -10,7 +10,7 @@ import { readContract, normalizePlanPath, starterContract, analyze } from "./con
 import { stateFile, readState, writeState, diffSnapshot, runsDirResolution } from "./state.ts";
 import { formatCompactStatus, details, formatWatch } from "./formatting.ts";
 import { evidenceDetails, formatEvidence, formatWhy, whyDetails, reviewPacketDetails, progressDetails, formatProgress, createEvidenceBundle, doctorDetails, formatDoctor } from "./evidence.ts";
-import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, importAcceptanceEvidence, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
+import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, importReviewEvidence, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
 import { refreshWorkflowUi, formatHelp } from "./ui.ts";
 
 export function registerWorkflowTools(pi: ExtensionAPI) {
@@ -183,7 +183,7 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
     name: "workflow_review_packet",
     label: "Workflow Review Packet",
     description: "Return a compact reviewer/oracle handoff packet. Does not launch subagents.",
-    promptSnippet: "Use when trusted review is missing or stale; copy the packet to reviewer/oracle, then import accepted evidence with workflow_import_acceptance.",
+    promptSnippet: "Use when trusted review is missing or stale; copy the packet to reviewer/oracle, then import accepted evidence with workflow_import_review_evidence.",
     parameters: Type.Object({ cwd: Type.Optional(Type.String()) }),
     async execute(_toolCallId, params) {
       const root = repoRoot(cwdFrom(params.cwd));
@@ -206,14 +206,14 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "workflow_import_acceptance",
-    label: "Workflow Import Acceptance",
-    description: "Import a pi-subagents v0.26 reviewer/oracle acceptance artifact as trusted review evidence only when fenced acceptance, provenance, and current diff hash validate.",
-    promptSnippet: "Prefer this for reviewer/oracle subagent results that used pi-subagents acceptance gates. Do not use manual OK_TO_COMMIT prose as trusted evidence.",
-    parameters: Type.Object({ cwd: Type.Optional(Type.String()), artifactPath: Type.Optional(Type.String({ description: "Repo-local JSON/text artifact path from pi-subagents status/result" })), result: Type.Optional(Type.Any({ description: "Raw status/result object to validate instead of reading artifactPath" })), verdict: Type.Optional(StringEnum(["OK_TO_COMMIT", "OK_TO_MARK_DONE", "OK_TO_MARK_FIXED", "OK_TO_PRESENT"])) }),
+    name: "workflow_import_review_evidence",
+    label: "Workflow Import Review Evidence",
+    description: "Import Workflow Watcher review evidence from a repo-local Markdown/text artifact with one workflow-review-evidence JSON fence.",
+    promptSnippet: "Use for reviewer/oracle evidence produced for a pending workflow review request. Manual prose and pi-subagents acceptance reports are not trusted evidence.",
+    parameters: Type.Object({ cwd: Type.Optional(Type.String()), artifactPath: Type.String({ description: "Repo-local Markdown/text artifact path containing one workflow-review-evidence fenced JSON block" }) }),
     async execute(_toolCallId, params) {
       const root = repoRoot(cwdFrom(params.cwd));
-      return importAcceptanceEvidence(root, params as Record<string, unknown>);
+      return importReviewEvidence(root, params as Record<string, unknown>);
     },
   });
 }

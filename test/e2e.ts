@@ -5,6 +5,8 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import workflowWatcher from "../index.ts";
 import { setWorkflowWatcherEnabled } from "../src/toggle.ts";
+import { writeReviewRequest } from "../src/review-evidence.ts";
+import type { ReviewEvidence, ReviewRequest } from "../src/types.ts";
 
 type Tool = { name: string; execute: (id: string, params: Record<string, unknown>) => Promise<unknown> };
 type Hook = (event: Record<string, unknown>, ctx?: Record<string, unknown>) => Promise<unknown> | unknown;
@@ -98,10 +100,42 @@ async function toolCallGuard(root: string, command: string) {
   return await handler({ toolName: "bash", input: { command }, cwd: root }) as { block?: boolean; reason?: string } | undefined;
 }
 
+function reviewRequest(root: string, diff: string): ReviewRequest {
+  return {
+    schema: "pi-workflow-review-request/v1",
+    id: "rw-e2e",
+    createdAt: "2026-06-19T00:00:00.000Z",
+    repo: root,
+    diffHash: diff,
+    expectedFiles: ["src/app.ts"],
+    mode: "commit",
+    allowedVerdicts: ["OK_TO_COMMIT"],
+    status: "pending",
+    consumedAt: null,
+  };
+}
+
+function reviewEvidence(root: string, diff: string): ReviewEvidence {
+  return {
+    schema: "pi-workflow-review-evidence/v1",
+    reviewRequestId: "rw-e2e",
+    repo: root,
+    reviewedDiffHash: diff,
+    reviewedAt: "2026-06-19T00:00:00.000Z",
+    reviewedFiles: ["src/app.ts"],
+    reviewer: { role: "reviewer", name: "e2e", source: "test" },
+    verdict: "OK_TO_COMMIT",
+    criteria: [{ id: "e2e", status: "satisfied", evidence: "reviewed current diff" }],
+    verification: [],
+    residualRisks: [],
+  };
+}
+
 const root = repo();
 setWorkflowWatcherEnabled(root, true);
 writeContract(root);
 writeFileSync(join(root, "package.json"), `${JSON.stringify({ scripts: { test: "node -e \"process.exit(0)\"", typecheck: "node -e \"process.exit(0)\"", build: "node -e \"process.exit(0)\"" } }, null, 2)}\n`);
+writeFileSync(join(root, ".gitignore"), "review.md\n");
 mkdirSync(join(root, "src"), { recursive: true });
 writeFileSync(join(root, "src/app.ts"), "export const value = 1;\n");
 git(["add", "."], root);
@@ -126,24 +160,13 @@ assert(beforeEvidence?.block === true, "commit should be blocked before trusted 
 assert(beforeEvidence.reason?.includes("missing current trusted review verdict"), `commit blocker should explain missing trusted review evidence, got: ${beforeEvidence.reason ?? "none"}`);
 
 const currentDiffHash = diffHash(root);
-const importResult = await tool("workflow_import_acceptance").execute("accept", {
+writeReviewRequest(root, reviewRequest(root, currentDiffHash));
+writeFileSync(join(root, "review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(reviewEvidence(root, currentDiffHash))}\n\`\`\`\n`);
+const importResult = await tool("workflow_import_review_evidence").execute("accept", {
   cwd: root,
-  result: {
-    agent: "reviewer",
-    finalOutput: `Review clean.\n\n\`\`\`acceptance-report\n${JSON.stringify({
-      criteriaSatisfied: [{ id: "e2e", status: "satisfied", evidence: "reviewed current diff" }],
-      reviewFindings: [],
-      residualRisks: [],
-      provenance: { diffHash: currentDiffHash },
-    })}\n\`\`\``,
-    acceptance: {
-      status: "attested",
-      childReport: { criteriaSatisfied: [{ id: "e2e", status: "satisfied", evidence: "reviewed current diff" }], provenance: { diffHash: currentDiffHash } },
-      runtimeChecks: [{ status: "passed", command: "review" }],
-    },
-  },
-}) as { details: { accepted: boolean } };
-assert(importResult.details.accepted === true, "trusted reviewer acceptance should import for current diff");
+  artifactPath: "review.md",
+}) as { details: { accepted: boolean; error?: string } };
+assert(importResult.details.accepted === true, `trusted review evidence should import for current diff: ${importResult.details.error ?? ""}`);
 
 const gate = await tool("workflow_gate").execute("gate", { cwd: root, gate: "beforeCommit" }) as { details: { status: string; gate: string } };
 assert(gate.details.gate === "beforeCommit" && gate.details.status === "pass", "beforeCommit gate should pass and persist evidence");

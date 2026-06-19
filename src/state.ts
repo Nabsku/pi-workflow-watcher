@@ -58,7 +58,7 @@ export function checkpoint(root: string, mode: CheckpointMode): { at: string; mo
 export function commitEvidenceCurrent(root: string, contract: WorkflowContract | null): boolean {
   const state = readState(root, contract); const current = diffSnapshot(root);
   const reviewSource = state.lastReviewVerdict?.source;
-  const reviewOk = Boolean(state.lastReviewVerdict && state.lastReviewVerdict.stale !== true && state.lastReviewVerdict.diffHash === current.diffHash && /^(OK_TO_COMMIT|OK_TO_MARK_DONE|OK_TO_MARK_FIXED|OK_TO_PRESENT)$/.test(String(state.lastReviewVerdict.verdict)) && (reviewSource === "reviewer_tool" || reviewSource === "oracle_tool"));
+  const reviewOk = Boolean(state.lastReviewVerdict && state.lastReviewVerdict.stale !== true && state.lastReviewVerdict.diffHash === current.diffHash && /^(OK_TO_COMMIT|OK_TO_MARK_DONE|OK_TO_MARK_FIXED|OK_TO_PRESENT)$/.test(String(state.lastReviewVerdict.verdict)) && reviewSource === "reviewer_evidence");
   const gateOk = Boolean(state.lastGateResult && state.lastGateResult.status === "pass" && state.lastGateResult.diffHash === current.diffHash && state.lastGateResult.source === "workflow_gate" && (state.lastGateResult.gate === "beforeCommit" || state.lastGateResult.gate === "final"));
   const checkpointOk = !state.checkpoint || state.checkpoint.diffHash === current.diffHash;
   return reviewOk && gateOk && checkpointOk;
