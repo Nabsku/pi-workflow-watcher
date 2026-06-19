@@ -1,12 +1,9 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import workflowWatcher from "../index.ts";
 import { setWorkflowWatcherEnabled } from "../src/toggle.ts";
-import { writeReviewRequest } from "../src/review-evidence.ts";
-import type { ReviewEvidence, ReviewRequest } from "../src/types.ts";
 
 type Tool = { name: string; execute: (id: string, params: Record<string, unknown>) => Promise<unknown> };
 type Hook = (event: Record<string, unknown>, ctx?: Record<string, unknown>) => Promise<unknown> | unknown;
@@ -38,9 +35,6 @@ function git(args: string[], cwd: string) {
   execFileSync("git", args, { cwd, stdio: "ignore" });
 }
 
-function gitOut(args: string[], cwd: string): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-}
 
 function repo(): string {
   const root = mkdtempSync(join(tmpdir(), "pi-workflow-e2e-"));
@@ -50,18 +44,6 @@ function repo(): string {
   return root;
 }
 
-function diffHash(root: string): string {
-  const status = gitOut(["status", "--short"], root);
-  const dirty = status ? status.split("\n").map((line) => line.trimEnd()).filter(Boolean) : [];
-  const diff = gitOut(["diff", "HEAD", "--binary"], root);
-  const hash = createHash("sha256").update(diff).update("\0").update(dirty.join("\n"));
-  for (const entry of dirty) if (entry.trimStart().startsWith("??")) {
-    const rel = entry.slice(3).trim();
-    const path = join(root, rel);
-    if (existsSync(path) && statSync(path).isFile()) hash.update("\0UNTRACKED\0").update(rel).update("\0").update(readFileSync(path));
-  }
-  return hash.digest("hex");
-}
 
 function writeContract(root: string) {
   mkdirSync(join(root, ".pi/plans"), { recursive: true });
@@ -100,36 +82,6 @@ async function toolCallGuard(root: string, command: string) {
   return await handler({ toolName: "bash", input: { command }, cwd: root }) as { block?: boolean; reason?: string } | undefined;
 }
 
-function reviewRequest(root: string, diff: string): ReviewRequest {
-  return {
-    schema: "pi-workflow-review-request/v1",
-    id: "rw-e2e",
-    createdAt: "2026-06-19T00:00:00.000Z",
-    repo: root,
-    diffHash: diff,
-    expectedFiles: ["src/app.ts"],
-    mode: "commit",
-    allowedVerdicts: ["OK_TO_COMMIT"],
-    status: "pending",
-    consumedAt: null,
-  };
-}
-
-function reviewEvidence(root: string, diff: string): ReviewEvidence {
-  return {
-    schema: "pi-workflow-review-evidence/v1",
-    reviewRequestId: "rw-e2e",
-    repo: root,
-    reviewedDiffHash: diff,
-    reviewedAt: "2026-06-19T00:00:00.000Z",
-    reviewedFiles: ["src/app.ts"],
-    reviewer: { role: "reviewer", name: "e2e", source: "test" },
-    verdict: "OK_TO_COMMIT",
-    criteria: [{ id: "e2e", status: "satisfied", evidence: "reviewed current diff" }],
-    verification: [],
-    residualRisks: [],
-  };
-}
 
 const root = repo();
 setWorkflowWatcherEnabled(root, true);
@@ -159,12 +111,12 @@ const beforeEvidence = await toolCallGuard(root, "git commit -m e2e");
 assert(beforeEvidence?.block === true, "commit should be blocked before trusted review and gate evidence");
 assert(beforeEvidence.reason?.includes("missing current trusted review verdict"), `commit blocker should explain missing trusted review evidence, got: ${beforeEvidence.reason ?? "none"}`);
 
-const currentDiffHash = diffHash(root);
-writeReviewRequest(root, reviewRequest(root, currentDiffHash));
-writeFileSync(join(root, "review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(reviewEvidence(root, currentDiffHash))}\n\`\`\`\n`);
+const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: ["src/app.ts"], mode: "commit" }) as { content: Array<{ text: string }> };
+mkdirSync(join(root, ".pi/runs"), { recursive: true });
+writeFileSync(join(root, ".pi/runs/review.md"), packet.content[0].text);
 const importResult = await tool("workflow_import_review_evidence").execute("accept", {
   cwd: root,
-  artifactPath: "review.md",
+  artifactPath: ".pi/runs/review.md",
 }) as { details: { accepted: boolean; error?: string } };
 assert(importResult.details.accepted === true, `trusted review evidence should import for current diff: ${importResult.details.error ?? ""}`);
 
