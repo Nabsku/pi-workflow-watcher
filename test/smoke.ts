@@ -267,6 +267,8 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   const evidence = reviewEvidenceFixture(root);
   const parsed = parseReviewEvidenceFence(`review complete\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\``);
   assert(parsed.ok === true && parsed.evidence.reviewRequestId === "rw-smoke", "workflow-review-evidence fence should parse valid v1 JSON");
+  const crlfParsed = parseReviewEvidenceFence(`review complete\r\n\r\n\`\`\`workflow-review-evidence\r\n${JSON.stringify(evidence)}\r\n\`\`\``);
+  assert(crlfParsed.ok === true, "workflow-review-evidence fence should parse CRLF Markdown");
   assert(parseReviewEvidenceFence("review complete OK_TO_COMMIT").ok === false, "prose-only review evidence must reject");
   const malformed = parseReviewEvidenceFence("```workflow-review-evidence\n{bad json}\n```");
   assert(malformed.ok === false && malformed.error.includes("malformed"), "malformed review evidence JSON should be actionable");
@@ -302,6 +304,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(reviewFilesMatch(root, ["../outside"], ["README.md"]).error?.includes("escapes repo"), "reviewed files should reject repo escape");
   assert(validateReviewEvidenceForRequest(root, { ...evidence, repo: join(root, "other") }, request).error?.includes("repo"), "repo mismatch should reject");
   assert(validateReviewEvidenceForRequest(root, { ...evidence, reviewedDiffHash: "other" }, request).error?.includes("diffHash"), "diff hash mismatch should reject");
+  assert(validateReviewEvidenceForRequest(root, { ...evidence, verdict: "OK_TO_MARK_DONE" }, request).error?.includes("not allowed"), "commit-mode request should reject non-commit verdicts");
   assert(validateReviewEvidenceForRequest(root, { ...evidence, reviewedFiles: ["README.md"] }, request).error?.includes("reviewedFiles"), "reviewed files mismatch should reject");
   assert(validateReviewEvidenceForRequest(root, { ...evidence, verdict: "OK_TO_PRESENT" }, request).error?.includes("not allowed"), "verdict outside request mode should reject");
   assert(validateReviewCriteria([]).error?.includes("non-empty"), "empty criteria should reject");
@@ -425,19 +428,26 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   git(["commit", "-m", "baseline"], root);
   writeFileSync(join(root, "src/secure/auth.ts"), "export const changed = true;\n");
   writeFileSync(join(root, "src/secure/nested/auth.ts"), "export const nested = true;\n");
-  const packet = await tool("workflow_review_packet").execute("packet", { cwd: root }) as { content: Array<{ text: string }>; details: Record<string, unknown> };
+  const reviewFiles = ["src/secure/auth.ts", "src/secure/nested/auth.ts"];
+  const missingFilesPacket = await tool("workflow_review_packet").execute("packet", { cwd: root }) as { content: Array<{ text: string }>; details: Record<string, unknown> };
+  assert(missingFilesPacket.details.requestError, "review packet should require explicit files for trusted requests");
+  const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: reviewFiles, mode: "commit" }) as { content: Array<{ text: string }>; details: Record<string, unknown> };
   assert(packet.content[0].text.includes("# Workflow review packet"), "review packet should render a reviewer packet");
   assert(packet.content[0].text.includes("Do not launch subagents"), "review packet should not launch subagents");
   assert(packet.content[0].text.includes("src/secure/auth.ts"), "review packet should list touched files");
   assert(packet.content[0].text.includes("current diffHash"), "review packet should include diff hash");
+  assert(packet.content[0].text.includes("reviewRequestId"), "review packet should include workflow-review-evidence template request id");
+  assert(packet.content[0].text.includes("OK_TO_COMMIT"), "commit-mode review packet should allow only commit verdict");
   assert(packet.content[0].text.includes("Manual notes are recorded context, not trusted approval."), "review packet should include manual note trust phrase");
+  assert((packet.details.request as { id?: string } | undefined)?.id, "review packet should persist request details");
+  assert((packet.details.request as { expectedFiles?: string[] } | undefined)?.expectedFiles?.length === 2, "review packet should bind expected files");
   assert((packet.details.ownership as { highRisk?: string[] }).highRisk?.includes("src/secure/auth.ts"), "review packet details should include ownership notes");
   assert((packet.details.ownership as { highRisk?: string[] }).highRisk?.includes("src/secure/nested/auth.ts"), "review packet should match recursive ** ownership patterns");
   assert(packet.content[0].text.includes("## Architecture checklist"), "review packet should include architecture checklist");
   assert(packet.content[0].text.includes("contracts/API boundaries"), "architecture checklist should prompt API boundary review");
   messages.length = 0;
-  await commands.workflow.handler("review-prompt", { cwd: root });
-  assert(messages[0]?.content.includes("# Workflow review packet"), "/workflow review-prompt should send packet");
+  await commands.workflow.handler("review-prompt --mode commit src/secure/auth.ts src/secure/nested/auth.ts", { cwd: root });
+  assert(messages[0]?.content.includes("# Workflow review packet") && messages[0]?.content.includes("reviewRequestId"), "/workflow review-prompt should send packet with request");
   messages.length = 0;
   await commands.workflow.handler("why commit", { cwd: root });
   assert(messages[0]?.content.includes("# Workflow why") && messages[0]?.content.includes("trusted reviewer/oracle evidence"), "/workflow why commit should explain missing commit evidence");
@@ -659,6 +669,26 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
       final: { description: "Final checks", commands: ["ok"], required: true },
     },
   }));
+  writeFileSync(join(root, "file.txt"), "one\n"); git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
+  writeFileSync(join(root, "file.txt"), "two\n");
+  await tool("workflow_note").execute("note", { cwd: root, note: "review OK_TO_MARK_DONE" });
+  markLastReviewTrusted(root);
+  await tool("workflow_gate").execute("gate", { cwd: root, gate: "beforeCommit" });
+  const details = await tool("workflow_export_evidence").execute("bundle", { cwd: root }) as { details: { commitReady: boolean; missing: string[] } };
+  assert(details.details.commitReady === false, "slice review verdict must not authorize commit readiness");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract({
+    commands: { ok: { cmd: "node -e \"process.exit(0)\"", source: "fixture", confidence: "verified" } },
+    gates: {
+      preflight: { description: "Preflight checks", commands: [], required: false, allowEmpty: true },
+      focused: { description: "Focused checks", commands: [], required: false, allowEmpty: true },
+      beforeCommit: { description: "Pre-commit checks", commands: ["ok"], required: true },
+      final: { description: "Final checks", commands: ["ok"], required: true },
+    },
+  }));
   mkdirSync(join(root, ".pi/plans"), { recursive: true });
   writeFileSync(join(root, ".pi/plans/done.md"), "# Plan\n- [x] implement feature\n");
   writeFileSync(join(root, "file.txt"), "one\n"); git(["add", "file.txt"], root); git(["commit", "-m", "init"], root);
@@ -667,7 +697,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(result.details.clean === false, "workflow_complete should fail closed without clean evidence");
   assert(result.content[0].text.includes("Workflow complete: BLOCKED"), "workflow_complete should explain blocked completion");
   assert(result.details.blockers.includes("trusted reviewer/oracle evidence"), "workflow_complete should require trusted review evidence");
-  await tool("workflow_note").execute("note", { cwd: root, note: "OK_TO_MARK_DONE final review" });
+  await tool("workflow_note").execute("note", { cwd: root, note: "OK_TO_COMMIT final review" });
   markLastReviewTrusted(root);
   await tool("workflow_gate").execute("gate", { cwd: root, gate: "final" });
   result = await tool("workflow_complete").execute("complete", { cwd: root, planPath: ".pi/plans/done.md" }) as unknown as typeof result;
@@ -1299,6 +1329,37 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 {
   const root = repo();
   writeContract(root, validContract());
+  writeFileSync(join(root, "file.txt"), "one\n");
+  git(["add", "file.txt"], root);
+  git(["commit", "-m", "init"], root);
+  writeFileSync(join(root, "file.txt"), "two\n");
+  const diffHash = fixtureDiffHash(root);
+  writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["file.txt"] }));
+  mkdirSync(join(root, ".pi/runs"), { recursive: true });
+  const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] });
+  writeFileSync(join(root, ".pi/runs/review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
+  const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: ".pi/runs/review.md" }) as { details: { accepted: boolean; error?: string } };
+  assert(result.details.accepted === true, `runtime review artifact/request files should be excluded from import diff hash: ${result.details.error ?? ""}`);
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
+  writeFileSync(join(root, "file.txt"), "one\n");
+  git(["add", "file.txt"], root);
+  git(["commit", "-m", "init"], root);
+  writeFileSync(join(root, "file.txt"), "two\n");
+  const diffHash = fixtureDiffHash(root);
+  writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["file.txt"] }));
+  const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] });
+  writeFileSync(join(root, "backdoor.ts"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
+  const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: "backdoor.ts" }) as { details: { accepted: boolean; error?: string } };
+  assert(result.details.accepted === false && result.details.error?.includes("current repo diffHash"), "non-runtime artifact path must not be excluded from diff hash");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
   commitBaselineWithReviewArtifactIgnored(root);
   writeFileSync(join(root, "file.txt"), "two\n");
   const diffHash = fixtureDiffHash(root);
@@ -1407,6 +1468,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   writeFileSync(join(root, "file.txt"), "three\n");
   writeReviewRequest(root, reviewRequestFixture(root, { diffHash: staleHash, expectedFiles: ["file.txt"] }));
   const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: staleHash, reviewedFiles: ["file.txt"] });
+  // stale hash case intentionally writes file again after request hash capture
   writeReviewEvidenceArtifact(root, evidence, "");
   const result = await importReviewEvidenceArtifact(root);
   assert(result.details.accepted === false && result.details.error?.includes("current repo diffHash"), "mismatched current diff hash must not import");

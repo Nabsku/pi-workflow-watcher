@@ -8,7 +8,7 @@ import { StringEnum, Type } from "@earendil-works/pi-ai";
 import type { AcceptanceImportDetails, AgentToolResult, CheckpointMode, CommandSpec, Confidence, ContractRead, DoctorDetails, EvidenceBundleDetails, EvidenceDetails, EvidenceSource, Finding, GateCommandRun, GateDetails, GateRunStatus, GateSpec, LedgerEvent, NoteDetails, PlanInference, ProgressDetails, ReviewPacketDetails, Severity, WatchDetails, WatchMode, WatchVerbosity, WhyDetails, WorkflowContract, WorkflowState, WorkflowUi, WorkflowUiContext } from "./types.ts";
 import { textResult } from "./result.ts";
 import { cwdFrom, git, repoRoot, dirtyFiles, dirtyPath, unquotePath, normalizeDirtyPath, readJson, repoLocalPath, safeRepoLocalPath } from "./fs-git.ts";
-import { readLog, runsDirResolution, readState, diffSnapshot, markReviewStaleIfEdited, writeState } from "./state.ts";
+import { readLog, runsDirResolution, readState, diffSnapshot, runtimeArtifactExcludes, markReviewStaleIfEdited, writeState } from "./state.ts";
 import { readContract, validateContractSchema, validateContractSemantics } from "./contract-read.ts";
 import { listPlans, inferActivePlan, inspectPlan } from "./plans.ts";
 import { inspectWorkflowLessons } from "./workflow-lessons.ts";
@@ -34,7 +34,7 @@ export function analyze(root: string, mode: WatchMode, planPath?: unknown, optio
   const planInfo = inspectPlan(planInference.selectedPlan);
   const workflowLessons = inspectWorkflowLessons(planInfo.activePlan, planInfo.checkboxTasks?.find((task) => !task.checked)?.text);
   if (workflowLessons.activeSliceNudge) findings.push({ severity: "nudge", title: "Narrow active slice", detail: workflowLessons.activeSliceNudge });
-  const current = diffSnapshot(root);
+  const current = diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, contract) });
   if (planInfo.activePlan) state.activePlan = planInfo.activePlan.slice(root.length + 1);
   if ((mode === "preflight" || mode === "before-slice") && !state.dirtyBaseline) state.dirtyBaseline = { at: new Date().toISOString(), diffHash: current.diffHash, dirtyFiles: current.dirtyFiles };
   state = markReviewStaleIfEdited(state, current.diffHash);

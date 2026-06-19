@@ -9,11 +9,11 @@ import type { AcceptanceImportDetails, AgentToolResult, CheckpointMode, CommandS
 import { textResult } from "./result.ts";
 import { cwdFrom, git, repoRoot, dirtyFiles, dirtyPath, normalizeDirtyPath, readJson, repoLocalPath, safeRepoLocalPath } from "./fs-git.ts";
 import { readContract, validateContractSchema, validateContractSemantics, normalizePlanPath, absolutePlanPath, inferActivePlan, inspectPlan, listPlans, severity, analyze, currentBranch } from "./contract.ts";
-import { runsDirResolution, runsDir, watcherLog, ledgerFile, stateFile, readLog, defaultState, readState, writeState, repoRelativePath, diffSnapshot, markReviewStaleIfEdited, checkpoint, commitEvidenceCurrent } from "./state.ts";
+import { runsDirResolution, runsDir, watcherLog, ledgerFile, stateFile, readLog, defaultState, readState, writeState, repoRelativePath, diffSnapshot, runtimeArtifactExcludes, markReviewStaleIfEdited, checkpoint, commitEvidenceCurrent } from "./state.ts";
 import { pathMatchesPattern, editGuardForPath, redactSecrets } from "./guards.ts";
 
 export function evidenceDetails(root: string, contract: WorkflowContract | null): EvidenceDetails {
-  const state = readState(root, contract); const snap = diffSnapshot(root); const commitReady = commitEvidenceCurrent(root, contract);
+  const state = readState(root, contract); const snap = diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, contract) }); const commitReady = commitEvidenceCurrent(root, contract);
   const review = state.lastReviewVerdict; const gate = state.lastGateResult;
   const reviewFresh = !!review && review.diffHash === snap.diffHash && review.stale !== true; const gateFresh = !!gate && gate.diffHash === snap.diffHash && gate.status === "pass";
   const missing: string[] = []; if (!reviewFresh) missing.push("trusted reviewer/oracle evidence"); if (!gateFresh) missing.push("current workflow_gate beforeCommit/final pass"); if (state.checkpoint?.diffHash !== snap.diffHash) missing.push("current diff checkpoint");

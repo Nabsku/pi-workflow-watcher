@@ -1,13 +1,19 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { readContract, isObject } from "./contract.ts";
-import { diffSnapshot, readState, runsDir, stateFile, watcherLog, writeState } from "./state.ts";
+import { diffSnapshot, readState, runtimeArtifactExcludes, runsDir, stateFile, watcherLog, writeState } from "./state.ts";
 import { textResult } from "./result.ts";
 import { appendLedgerEvent } from "./guard-logging.ts";
-import type { AgentToolResult, ReviewEvidence, ReviewEvidenceCriterion, ReviewEvidenceImportDetails, ReviewEvidenceParseResult, ReviewRequest } from "./types.ts";
+import type { AgentToolResult, ReviewEvidence, ReviewEvidenceCriterion, ReviewEvidenceImportDetails, ReviewEvidenceParseResult, ReviewMode, ReviewRequest } from "./types.ts";
 
 export const REVIEW_EVIDENCE_SCHEMA = "pi-workflow-review-evidence/v1";
 export const REVIEW_REQUEST_SCHEMA = "pi-workflow-review-request/v1";
+
+export function allowedVerdictsForMode(mode: ReviewMode): string[] {
+  if (mode === "slice") return ["OK_TO_MARK_DONE", "OK_TO_MARK_FIXED"];
+  if (mode === "present") return ["OK_TO_PRESENT"];
+  return ["OK_TO_COMMIT"];
+}
 
 export function reviewRequestsDir(root: string): string {
   const read = readContract(root);
@@ -51,7 +57,7 @@ export function consumeReviewRequest(root: string, request: ReviewRequest, consu
 }
 
 export function parseReviewEvidenceFence(text: string): ReviewEvidenceParseResult {
-  const matches = [...text.matchAll(/```workflow-review-evidence[ \t]*\n([\s\S]*?)```/g)];
+  const matches = [...text.matchAll(/```workflow-review-evidence[ \t]*\r?\n([\s\S]*?)```/g)];
   if (matches.length === 0) return { ok: false, error: "missing workflow-review-evidence fenced JSON block" };
   if (matches.length > 1) return { ok: false, error: "expected exactly one workflow-review-evidence fenced JSON block" };
   try {
@@ -135,7 +141,8 @@ export function importReviewEvidence(root: string, params: Record<string, unknow
   if (requestResult.error || !requestResult.request) return reviewEvidenceImportError(root, requestResult.error ?? "review request is not pending", loaded.artifactPath);
   const request = requestResult.request;
   if (resolve(request.repo) !== resolve(root)) return reviewEvidenceImportError(root, "review request repo does not match current repo root", loaded.artifactPath);
-  const snap = diffSnapshot(root);
+  const excluded = runtimeArtifactExcludes(root, contract);
+  const snap = diffSnapshot(root, { excludePaths: excluded });
   if (parsed.evidence.reviewedDiffHash !== snap.diffHash) return reviewEvidenceImportError(root, "reviewedDiffHash does not match current repo diffHash", loaded.artifactPath);
   const validation = validateReviewEvidenceForRequest(root, parsed.evidence, request);
   if (!validation.ok) return reviewEvidenceImportError(root, validation.error ?? "review evidence does not match review request", loaded.artifactPath);
@@ -148,7 +155,7 @@ export function importReviewEvidence(root: string, params: Record<string, unknow
   mkdirSync(runsDir(root, contract), { recursive: true });
   appendFileSync(watcherLog(root, contract), `${at} imported workflow review evidence reviewer_evidence ${parsed.evidence.verdict} diffHash=${snap.diffHash}\n`, "utf8");
   appendLedgerEvent(root, contract, { type: "review_evidence", at, diffHash: snap.diffHash, source: "reviewer_evidence", verdict: parsed.evidence.verdict, status: "accepted", artifactPath: loaded.artifactPath });
-  return textResult(`Imported trusted reviewer_evidence as ${parsed.evidence.verdict}`, { root, accepted: true, source: "reviewer_evidence", verdict: parsed.evidence.verdict, statePath: stateFile(root, contract), artifactPath: loaded.artifactPath, diffHash: snap.diffHash });
+  return textResult(`Imported trusted reviewer_evidence as ${parsed.evidence.verdict}`, { root, accepted: true, source: "reviewer_evidence", verdict: parsed.evidence.verdict, statePath: stateFile(root, contract), artifactPath: loaded.artifactPath, requestPath: requestResult.path, diffHash: snap.diffHash });
 }
 
 function reviewEvidenceFromUnknown(value: unknown): ReviewEvidence | undefined {
@@ -172,6 +179,9 @@ function reviewRequestFromUnknown(value: unknown): ReviewRequest | undefined {
   if (!Array.isArray(value.expectedFiles)) return undefined;
   if (value.mode !== "commit" && value.mode !== "slice" && value.mode !== "present") return undefined;
   if (!Array.isArray(value.allowedVerdicts) || !value.allowedVerdicts.every((item) => typeof item === "string")) return undefined;
+  const allowedVerdicts = value.allowedVerdicts as string[];
+  const allowed = allowedVerdictsForMode(value.mode);
+  if (allowedVerdicts.length !== allowed.length || !allowed.every((verdict) => allowedVerdicts.includes(verdict))) return undefined;
   if (value.status !== "pending" && value.status !== "consumed") return undefined;
   if (value.consumedAt !== null && typeof value.consumedAt !== "string") return undefined;
   return value as ReviewRequest;

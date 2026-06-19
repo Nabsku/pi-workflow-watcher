@@ -14,7 +14,7 @@ export type GateCommandRun = { alias: string; cmd: string; status: GateRunStatus
 export type GateDetails = { root: string; gate: string; dryRun: boolean; status: GateRunStatus; logPath?: string; statePath?: string; commands: GateCommandRun[]; error?: string };
 export type NoteDetails = { root: string; path: string; statePath?: string; appended: boolean; status?: "ok" | "fail"; error?: string };
 export type AcceptanceImportDetails = { root: string; accepted: boolean; source?: EvidenceSource; verdict?: string; statePath?: string; artifactPath?: string; diffHash?: string; error?: string };
-export type ReviewEvidenceImportDetails = AcceptanceImportDetails;
+export type ReviewEvidenceImportDetails = AcceptanceImportDetails & { requestPath?: string };
 export type ReviewMode = "commit" | "slice" | "present";
 export type ReviewRequestStatus = "pending" | "consumed";
 export type ReviewRequest = { schema: "pi-workflow-review-request/v1"; id: string; createdAt: string; repo: string; diffHash: string; expectedFiles: string[]; mode: ReviewMode; allowedVerdicts: string[]; status: ReviewRequestStatus; consumedAt: string | null };
@@ -26,7 +26,7 @@ export type EvidenceDetails = { root: string; statePath: string; currentDiffHash
 export type EvidenceBundleDetails = { root: string; bundlePath: string; currentDiffHash: string; commitReady: boolean; missing: string[]; nextAction: string; evidencePath: string; activePlan?: string; activeSlice?: string; touchedFiles: string[] };
 export type DoctorDetails = { root: string; ready: boolean; contractStatus: ContractRead["status"]; blockers: string[]; warnings: string[]; repairSteps: string[]; artifactPaths: { runsDir: string; fallbackUsed: boolean; error?: string }; commands: string[]; gates: string[]; commitReady: boolean; commitMissing: string[]; workflowLessons?: unknown };
 export type WhyDetails = { root: string; target: "workflow" | "commit" | "edit"; path?: string; blocked: boolean; source: string; reason: string; nextAction: string; evidence?: EvidenceDetails; finding?: Finding };
-export type ReviewPacketDetails = { root: string; activePlan?: string; activeSlice?: string; touchedFiles: string[]; currentDiffHash: string; ownership: { highRisk: string[]; generated: string[]; lockfiles: string[] }; gateStatus: string; evidenceStatus: string; acceptanceRequirements: string[]; importRequirements: string[]; packet: string };
+export type ReviewPacketDetails = { root: string; activePlan?: string; activeSlice?: string; touchedFiles: string[]; excludedFiles?: string[]; currentDiffHash: string; ownership: { highRisk: string[]; generated: string[]; lockfiles: string[] }; gateStatus: string; evidenceStatus: string; acceptanceRequirements: string[]; importRequirements: string[]; request?: ReviewRequest; requestPath?: string; requestError?: string; packet: string };
 export type ProgressDetails = { root: string; activePlan?: string; currentSlice?: string; counts: { open?: number; completed?: number; reviewed?: number; gated?: number; total?: number; limitations: string[] }; staleEvidence: { review: boolean; gate: boolean; checkpoint: boolean; messages: string[] }; nextSafeAction: string; planParse: { parseable: boolean; limitations: string[] }; evidence: Pick<EvidenceDetails, "commitReady" | "reviewTrusted" | "reviewFresh" | "gateTrusted" | "gateFresh" | "missing">; workflowLessons?: unknown };
 export type WorkflowCompleteDetails = { root: string; status: "complete" | "blocked"; clean: boolean; activePlan?: string; statePath: string; completedAt?: string; blockers: string[]; evidence: Pick<EvidenceDetails, "commitReady" | "reviewTrusted" | "reviewFresh" | "gateTrusted" | "gateFresh" | "missing">; counts: ProgressDetails["counts"] };
 export type WorkflowState = {
@@ -36,7 +36,7 @@ export type WorkflowState = {
   dirtyBaseline?: { at: string; diffHash: string; dirtyFiles: string[] };
   dirtyOverlapApprovals?: Array<{ path: string; reason: string; at: string; baselineDiffHash: string; consumedAt?: string }>;
   lastEdit?: { at: string; path?: string; tool?: string; diffHash: string; dirtyFiles: string[] };
-  lastReviewVerdict?: { verdict: string; at: string; diffHash: string; dirtyFiles: string[]; stale?: boolean; source?: EvidenceSource };
+  lastReviewVerdict?: { verdict: string; at: string; diffHash: string; dirtyFiles: string[]; stale?: boolean; source?: EvidenceSource; artifactPath?: string };
   lastGateResult?: { gate: string; status: "pass" | "fail"; at: string; diffHash: string; dirtyFiles: string[]; source?: EvidenceSource };
   checkpoint?: { at: string; mode: CheckpointMode; diffHash: string; dirtyFiles: string[] };
 };

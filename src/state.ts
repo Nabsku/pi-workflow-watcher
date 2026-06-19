@@ -33,9 +33,27 @@ export function repoRelativePath(root: string, target: string): string | undefin
   const rel = relative(root, resolved).replace(/\\/g, "/");
   return rel.startsWith("..") || isAbsolute(rel) ? undefined : rel;
 }
-export function diffSnapshot(root: string): { diffHash: string; dirtyFiles: string[] } {
-  const dirty = dirtyFiles(root);
-  const diff = git(["diff", "HEAD", "--binary"], root);
+function normalizedExcludePaths(root: string, excludePaths: string[] | undefined): string[] {
+  return [...new Set((excludePaths ?? []).map((entry) => {
+    const resolved = resolve(root, entry);
+    return relative(root, resolved).replace(/\\/g, "/").replace(/\/$/, "");
+  }).filter((entry) => entry && !entry.startsWith("..") && !isAbsolute(entry)))];
+}
+
+function pathIsExcluded(rel: string, excludePaths: string[]): boolean {
+  const normalized = rel.replace(/\\/g, "/").replace(/\/$/, "");
+  return excludePaths.some((excluded) => normalized === excluded || normalized.startsWith(`${excluded}/`));
+}
+
+export function runtimeArtifactExcludes(root: string, contract: WorkflowContract | null, extraPaths: string[] = []): string[] {
+  return normalizedExcludePaths(root, [runsDir(root, contract), ".pi/runs", ".pi/tasks", ...extraPaths]);
+}
+
+export function diffSnapshot(root: string, options: { excludePaths?: string[] } = {}): { diffHash: string; dirtyFiles: string[] } {
+  const excluded = normalizedExcludePaths(root, options.excludePaths);
+  const dirty = dirtyFiles(root).filter((entry) => !pathIsExcluded(normalizeDirtyPath(entry), excluded));
+  const diffArgs = excluded.length ? ["diff", "HEAD", "--binary", "--", ".", ...excluded.map((entry) => `:(exclude)${entry}`)] : ["diff", "HEAD", "--binary"];
+  const diff = git(diffArgs, root);
   const hash = createHash("sha256").update(diff).update("\0").update(dirty.join("\n"));
   for (const entry of dirty) {
     if (!entry.trimStart().startsWith("??")) continue;
@@ -56,9 +74,10 @@ export function markReviewStaleIfEdited(state: WorkflowState, currentDiffHash: s
 }
 export function checkpoint(root: string, mode: CheckpointMode): { at: string; mode: CheckpointMode; diffHash: string; dirtyFiles: string[] } { const snap = diffSnapshot(root); return { at: new Date().toISOString(), mode, diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles }; }
 export function commitEvidenceCurrent(root: string, contract: WorkflowContract | null): boolean {
-  const state = readState(root, contract); const current = diffSnapshot(root);
+  const state = readState(root, contract);
+  const current = diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, contract) });
   const reviewSource = state.lastReviewVerdict?.source;
-  const reviewOk = Boolean(state.lastReviewVerdict && state.lastReviewVerdict.stale !== true && state.lastReviewVerdict.diffHash === current.diffHash && /^(OK_TO_COMMIT|OK_TO_MARK_DONE|OK_TO_MARK_FIXED|OK_TO_PRESENT)$/.test(String(state.lastReviewVerdict.verdict)) && reviewSource === "reviewer_evidence");
+  const reviewOk = Boolean(state.lastReviewVerdict && state.lastReviewVerdict.stale !== true && state.lastReviewVerdict.diffHash === current.diffHash && state.lastReviewVerdict.verdict === "OK_TO_COMMIT" && reviewSource === "reviewer_evidence");
   const gateOk = Boolean(state.lastGateResult && state.lastGateResult.status === "pass" && state.lastGateResult.diffHash === current.diffHash && state.lastGateResult.source === "workflow_gate" && (state.lastGateResult.gate === "beforeCommit" || state.lastGateResult.gate === "final"));
   const checkpointOk = !state.checkpoint || state.checkpoint.diffHash === current.diffHash;
   return reviewOk && gateOk && checkpointOk;

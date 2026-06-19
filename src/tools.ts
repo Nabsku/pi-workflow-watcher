@@ -182,12 +182,12 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: "workflow_review_packet",
     label: "Workflow Review Packet",
-    description: "Return a compact reviewer/oracle handoff packet. Does not launch subagents.",
-    promptSnippet: "Use when trusted review is missing or stale; copy the packet to reviewer/oracle, then import accepted evidence with workflow_import_review_evidence.",
-    parameters: Type.Object({ cwd: Type.Optional(Type.String()) }),
+    description: "Create a compact reviewer/oracle handoff packet and a single-use review request for explicit files.",
+    promptSnippet: "Use when trusted review is missing or stale. Pass explicit files and mode so the packet creates a pending review request, then import accepted evidence with workflow_import_review_evidence.",
+    parameters: Type.Object({ cwd: Type.Optional(Type.String()), files: Type.Optional(Type.Array(Type.String({ description: "Explicit repo-local files expected in the review evidence" }))), mode: Type.Optional(StringEnum(["commit", "slice", "present"], { description: "Review request mode; default commit" })) }),
     async execute(_toolCallId, params) {
       const root = repoRoot(cwdFrom(params.cwd));
-      const details = reviewPacketDetails(root);
+      const details = reviewPacketDetails(root, { files: params.files, mode: params.mode });
       return textResult(details.packet, details);
     },
   });
