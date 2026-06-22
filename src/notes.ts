@@ -9,7 +9,7 @@ import type { AcceptanceImportDetails, AgentToolResult, CheckpointMode, CommandS
 import { textResult } from "./result.ts";
 import { cwdFrom, git, repoRoot, dirtyFiles, dirtyPath, normalizeDirtyPath, readJson, unquotePath, repoLocalPath, safeRepoLocalPath } from "./fs-git.ts";
 import { readContract, validateContractSchema, validateContractSemantics, normalizePlanPath, starterContract, severity, analyze, isObject } from "./contract.ts";
-import { runsDirResolution, runsDir, watcherLog, ledgerFile, stateFile, readLog, defaultState, readState, writeState, repoRelativePath, diffSnapshot, markReviewStaleIfEdited, checkpoint, commitEvidenceCurrent } from "./state.ts";
+import { runsDirResolution, runsDir, watcherLog, ledgerFile, stateFile, readLog, defaultState, readState, writeState, repoRelativePath, diffSnapshot, runtimeArtifactExcludes, markReviewStaleIfEdited, checkpoint, commitEvidenceCurrent } from "./state.ts";
 
 import { safePreview, appendLedgerEvent } from "./guard-logging.ts";
 export function appendWorkflowNote(root: string, noteInput: unknown): AgentToolResult<NoteDetails> {
@@ -18,7 +18,7 @@ export function appendWorkflowNote(root: string, noteInput: unknown): AgentToolR
   if (!runs.valid) return textResult(`Workflow note rejected: ${runs.error}; safe fallback is ${runs.path}`, { root, path: join(runs.path, "workflow-watcher.log"), statePath: join(runs.path, "workflow-state.json"), appended: false, status: "fail", error: runs.error });
   const dir = runs.path; mkdirSync(dir, { recursive: true }); const path = join(dir, "workflow-watcher.log"); const note = String(noteInput).trim(); const safeNote = safePreview(note, 400) ?? ""; const line = `${new Date().toISOString()} ${safeNote}\n`;
   appendFileSync(path, line, "utf8");
-  const state = readState(root, contract); const snap = diffSnapshot(root);
+  const state = readState(root, contract); const snap = diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, contract) });
   appendLedgerEvent(root, contract, { type: "note", at: new Date().toISOString(), diffHash: snap.diffHash, source: "manual_note", notePreview: safePreview(note) });
   state.lastNote = { at: new Date().toISOString(), note: safeNote };
   const verdict = note.match(/\b(OK_TO_MARK_DONE|OK_TO_MARK_FIXED|OK_TO_COMMIT|NEEDS_FIX|BLOCKED|OK_TO_PRESENT|NEEDS_WORK)\b/);
