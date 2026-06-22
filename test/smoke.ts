@@ -476,6 +476,36 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 
 {
   const root = repo();
+  writeContract(root, validContract({ artifacts: { plansDir: ".pi/plans", runsDir: "src", agentInstructions: "AGENTS.md" } }));
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src/app.ts"), "export const value = 1;\n");
+  git(["add", "."], root);
+  git(["commit", "-m", "baseline"], root);
+  writeFileSync(join(root, "src/app.ts"), "export const value = 2;\n");
+  const diffHash = fixtureDiffHash(root);
+  writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["src/app.ts"] }));
+  const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["src/app.ts"] });
+  writeFileSync(join(root, "src/review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
+  const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: "src/review.md" }) as { details: { accepted: boolean; error?: string } };
+  assert(result.details.accepted === false && result.details.error?.includes("current review scope"), "broad runsDir artifact path should not hide extra dirty source files");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
+  mkdirSync(join(root, "src/secure"), { recursive: true });
+  writeFileSync(join(root, "src/secure/old.ts"), "export const value = 1;\n");
+  git(["add", "."], root);
+  git(["commit", "-m", "baseline"], root);
+  mkdirSync(join(root, "src/public"), { recursive: true });
+  git(["mv", "src/secure/old.ts", "src/public/new.ts"], root);
+  const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: ["src/public/new.ts"] }) as { details: { touchedFiles: string[]; requestError?: string } };
+  assert(packet.details.touchedFiles.includes("src/secure/old.ts") && packet.details.touchedFiles.includes("src/public/new.ts"), "rename review scope should include source and destination paths");
+  assert(packet.details.requestError?.includes("outside expected files"), "rename source path should require explicit review scope coverage");
+}
+
+{
+  const root = repo();
   writeContract(root, validContract({ artifacts: { plansDir: ".pi/plans", runsDir: ".pi", agentInstructions: "AGENTS.md" } }));
   mkdirSync(join(root, ".pi/plans"), { recursive: true });
   writeFileSync(join(root, ".pi/plans/plan.md"), "# Plan\n- [ ] task\n");
@@ -1452,7 +1482,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] });
   writeFileSync(join(root, "backdoor.ts"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
   const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: "backdoor.ts" }) as { details: { accepted: boolean; error?: string } };
-  assert(result.details.accepted === false && result.details.error?.includes("current repo diffHash"), "non-runtime artifact path must not be excluded from diff hash");
+  assert(result.details.accepted === false && result.details.error?.includes("current review scope"), "non-runtime artifact path must remain in current review scope");
 }
 
 {
@@ -1561,6 +1591,8 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   enableWatcher(root);
   writeContract(root, validContract());
   commitBaselineWithReviewArtifactIgnored(root);
+  git(["add", ".pi/workflow-watcher.json"], root);
+  git(["commit", "-m", "enable watcher"], root);
   writeFileSync(join(root, "file.txt"), "two\n");
   const staleHash = fixtureDiffHash(root);
   writeFileSync(join(root, "file.txt"), "three\n");

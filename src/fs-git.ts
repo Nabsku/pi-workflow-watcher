@@ -50,6 +50,14 @@ export function normalizeDirtyPath(entry: string): string {
   return unquotePath(path.split(" -> ").pop() ?? path);
 }
 
+export function dirtyEntryPaths(entry: string): string[] {
+  const raw = entry.trim();
+  const statusMatch = raw.match(/^([ MADRCU?!]{1,2})\s+(.+)$/);
+  const path = statusMatch ? statusMatch[2].trim() : raw;
+  const parts = path.includes(" -> ") ? path.split(" -> ").map((item) => unquotePath(item.trim())).filter(Boolean) : [unquotePath(path)];
+  return [...new Set(parts)];
+}
+
 export function readJson<T>(path: string): T | null {
   try { return JSON.parse(readFileSync(path, "utf8")) as T; }
   catch { return null; }

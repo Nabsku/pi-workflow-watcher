@@ -55,12 +55,10 @@ function pathInsideDir(root: string, path: string, dir: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-function importedRuntimeArtifactPaths(root: string, contract: WorkflowContract | null): string[] {
+function importedRuntimeArtifactPaths(root: string, contract: WorkflowContract | null, runDirs: string[]): string[] {
   const artifactPath = readState(root, contract).lastReviewVerdict?.artifactPath;
   if (!artifactPath) return [];
-  const configuredRunsDir = runsDir(root, contract);
-  const defaultRunsDir = join(root, ".pi/runs");
-  return [configuredRunsDir, defaultRunsDir].some((dir) => pathInsideDir(root, artifactPath, dir)) ? [artifactPath] : [];
+  return runDirs.some((dir) => pathInsideDir(root, artifactPath, dir)) ? [artifactPath] : [];
 }
 
 function existingWatcherArtifacts(dir: string): string[] {
@@ -76,10 +74,12 @@ function existingWatcherArtifacts(dir: string): string[] {
 }
 
 export function runtimeArtifactExcludes(root: string, contract: WorkflowContract | null, extraPaths: string[] = []): string[] {
-  const configuredRunsDir = runsDir(root, contract);
+  const configured = runsDirResolution(root, contract);
   const defaultRunsDir = join(root, ".pi/runs");
-  const runDirs = configuredRunsDir === defaultRunsDir ? [configuredRunsDir] : [configuredRunsDir, defaultRunsDir];
-  return normalizedExcludePaths(root, [...runDirs.flatMap(existingWatcherArtifacts), ...importedRuntimeArtifactPaths(root, contract), join(root, ".pi/tasks"), ...extraPaths]);
+  const rel = configured.valid ? relative(root, configured.path).replace(/\\/g, "/") : "";
+  const configuredIsRuntime = configured.valid && (rel === ".pi/runs" || rel.startsWith(".pi/"));
+  const runDirs = configuredIsRuntime && configured.path !== defaultRunsDir ? [configured.path, defaultRunsDir] : [defaultRunsDir];
+  return normalizedExcludePaths(root, [...runDirs.flatMap(existingWatcherArtifacts), ...importedRuntimeArtifactPaths(root, contract, runDirs), join(root, ".pi/tasks"), ...extraPaths]);
 }
 
 export function diffSnapshot(root: string, options: { excludePaths?: string[] } = {}): { diffHash: string; dirtyFiles: string[] } {

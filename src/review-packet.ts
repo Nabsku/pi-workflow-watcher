@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { analyze, readContract } from "./contract.ts";
-import { normalizeDirtyPath } from "./fs-git.ts";
+import { dirtyEntryPaths } from "./fs-git.ts";
 import { pathMatchesPattern } from "./guards.ts";
 import { allowedVerdictsForMode, normalizeReviewFiles, REVIEW_EVIDENCE_SCHEMA, REVIEW_REQUEST_SCHEMA, REVIEWER_ATTESTATION, writeReviewRequest } from "./review-evidence.ts";
 import { diffSnapshot, runtimeArtifactExcludes } from "./state.ts";
@@ -28,34 +28,36 @@ function pathExcluded(rel: string, excluded: string[]): boolean {
 }
 
 export function reviewTouchedFiles(root: string, excludePaths: string[] = []): { files: string[]; excluded: string[] } {
-  const snap = diffSnapshot(root);
+  const snap = diffSnapshot(root, { excludePaths });
   const excluded = new Set<string>();
   const files = new Set<string>();
   for (const entry of snap.dirtyFiles) {
-    const rel = normalizeDirtyPath(entry).replace(/\/$/, "");
-    if (pathExcluded(rel, excludePaths)) { excluded.add(rel); continue; }
-    const abs = resolve(root, rel);
-    const normalizedRel = relative(root, abs).replace(/\\/g, "/");
-    if (normalizedRel.startsWith("..") || isAbsolute(normalizedRel)) continue;
-    try {
-      const stat = statSync(abs);
-      if (stat.isDirectory()) {
-        const walk = (dir: string) => {
-          for (const name of readdirSync(dir)) {
-            if (name === ".git") continue;
-            const child = join(dir, name);
-            const childStat = statSync(child);
-            if (childStat.isDirectory()) walk(child);
-            else if (childStat.isFile()) {
-              const childRel = relative(root, child).replace(/\\/g, "/");
-              if (pathExcluded(childRel, excludePaths)) excluded.add(childRel);
-              else files.add(childRel);
+    for (const path of dirtyEntryPaths(entry)) {
+      const rel = path.replace(/\/$/, "");
+      if (pathExcluded(rel, excludePaths)) { excluded.add(rel); continue; }
+      const abs = resolve(root, rel);
+      const normalizedRel = relative(root, abs).replace(/\\/g, "/");
+      if (normalizedRel.startsWith("..") || isAbsolute(normalizedRel)) continue;
+      try {
+        const stat = statSync(abs);
+        if (stat.isDirectory()) {
+          const walk = (dir: string) => {
+            for (const name of readdirSync(dir)) {
+              if (name === ".git") continue;
+              const child = join(dir, name);
+              const childStat = statSync(child);
+              if (childStat.isDirectory()) walk(child);
+              else if (childStat.isFile()) {
+                const childRel = relative(root, child).replace(/\\/g, "/");
+                if (pathExcluded(childRel, excludePaths)) excluded.add(childRel);
+                else files.add(childRel);
+              }
             }
-          }
-        };
-        walk(abs);
-      } else files.add(normalizedRel);
-    } catch { files.add(normalizedRel); }
+          };
+          walk(abs);
+        } else files.add(normalizedRel);
+      } catch { files.add(rel); }
+    }
   }
   return { files: [...files].sort(), excluded: [...excluded].sort() };
 }
@@ -88,7 +90,7 @@ function reviewEvidenceTemplate(root: string, request: ReviewRequest): string {
 }
 
 export function reviewPacketDetails(root: string, params: { files?: unknown; mode?: unknown } = {}): ReviewPacketDetails {
-  const read = readContract(root); const contract = read.contract; const analysis = analyze(root, "before-commit"); const evidence = evidenceDetails(root, contract);
+  const read = readContract(root); const contract = read.contract; const analysis = analyze(root, "before-commit", undefined, { writeState: false }); const evidence = evidenceDetails(root, contract);
   const runtimeExcludes = runtimeArtifactExcludes(root, contract);
   const touched = reviewTouchedFiles(root, runtimeExcludes);
   const own = ownershipNotes(contract, touched.files);
