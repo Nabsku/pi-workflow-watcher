@@ -9,6 +9,7 @@ import type { AgentToolResult, ReviewEvidence, ReviewEvidenceCriterion, ReviewEv
 
 export const REVIEW_EVIDENCE_SCHEMA = "pi-workflow-review-evidence/v1";
 export const REVIEW_REQUEST_SCHEMA = "pi-workflow-review-request/v1";
+export const REVIEWER_ATTESTATION = "I independently reviewed the requested diff and this evidence reflects my reviewer/oracle verdict.";
 
 export function allowedVerdictsForMode(mode: ReviewMode): string[] {
   if (mode === "slice") return ["OK_TO_MARK_DONE", "OK_TO_MARK_FIXED"];
@@ -107,6 +108,16 @@ export function validateReviewCriteria(criteria: unknown): { ok: boolean; error?
   return { ok: true };
 }
 
+export function validateReviewerProvenance(reviewer: unknown): { ok: boolean; error?: string } {
+  if (!isObject(reviewer)) return { ok: false, error: "reviewer provenance is required" };
+  const role = typeof reviewer.role === "string" ? reviewer.role : "";
+  if (role !== "reviewer" && role !== "oracle") return { ok: false, error: "reviewer.role must be reviewer or oracle" };
+  if (reviewer.source !== "pi-subagents") return { ok: false, error: "reviewer.source must be pi-subagents" };
+  if (typeof reviewer.runId !== "string" || reviewer.runId.trim().length < 6 || reviewer.runId.includes("<")) return { ok: false, error: "reviewer.runId provenance is required" };
+  if (reviewer.attestation !== REVIEWER_ATTESTATION) return { ok: false, error: "reviewer attestation is required" };
+  return { ok: true };
+}
+
 export function validateReviewEvidenceForRequest(root: string, evidence: ReviewEvidence, request: ReviewRequest): { ok: boolean; error?: string; reviewedFiles?: string[] } {
   if (evidence.reviewRequestId !== request.id) return { ok: false, error: "reviewRequestId does not match pending request" };
   if (resolve(evidence.repo) !== resolve(root)) return { ok: false, error: "evidence repo does not match current repo root" };
@@ -115,6 +126,8 @@ export function validateReviewEvidenceForRequest(root: string, evidence: ReviewE
   if (!files.ok) return { ok: false, error: files.error };
   if (!request.allowedVerdicts.includes(evidence.verdict)) return { ok: false, error: `verdict ${evidence.verdict} is not allowed for request mode ${request.mode}` };
   const criteria = validateReviewCriteria(evidence.criteria);
+  const provenance = validateReviewerProvenance(evidence.reviewer);
+  if (!provenance.ok) return provenance;
   if (!criteria.ok) return criteria;
   return { ok: true, reviewedFiles: files.reviewed };
 }
@@ -172,7 +185,7 @@ export function importReviewEvidence(root: string, params: Record<string, unknow
   const at = new Date().toISOString();
   consumeReviewRequest(root, request, at);
   const state = readState(root, contract);
-  state.lastReviewVerdict = { verdict: parsed.evidence.verdict, at, diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles, stale: false, source: "reviewer_evidence" };
+  state.lastReviewVerdict = { verdict: parsed.evidence.verdict, at, diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles, stale: false, source: "reviewer_evidence", artifactPath: loaded.artifactPath };
   state.checkpoint = { at, mode: "note", diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles };
   writeState(root, contract, state);
   mkdirSync(runsDir(root, contract), { recursive: true });
@@ -187,6 +200,7 @@ function reviewEvidenceFromUnknown(value: unknown): ReviewEvidence | undefined {
   if (typeof value.repo !== "string" || !value.repo.trim()) return undefined;
   if (typeof value.reviewedDiffHash !== "string" || !value.reviewedDiffHash.trim()) return undefined;
   if (typeof value.reviewedAt !== "string" || !value.reviewedAt.trim()) return undefined;
+  if (!isObject(value.reviewer)) return undefined;
   if (!Array.isArray(value.reviewedFiles)) return undefined;
   if (typeof value.verdict !== "string" || !value.verdict.trim()) return undefined;
   if (!Array.isArray(value.criteria)) return undefined;

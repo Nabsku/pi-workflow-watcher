@@ -50,6 +50,19 @@ function untrackedFiles(root: string, rel: string, excludePaths: string[]): stri
   return out ? out.split("\n").map((line) => line.trimEnd().replace(/\\/g, "/")).filter((file) => file && !pathIsExcluded(file, excludePaths)).sort() : [];
 }
 
+function pathInsideDir(root: string, path: string, dir: string): boolean {
+  const rel = relative(resolve(root, dir), resolve(root, path));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function importedRuntimeArtifactPaths(root: string, contract: WorkflowContract | null): string[] {
+  const artifactPath = readState(root, contract).lastReviewVerdict?.artifactPath;
+  if (!artifactPath) return [];
+  const configuredRunsDir = runsDir(root, contract);
+  const defaultRunsDir = join(root, ".pi/runs");
+  return [configuredRunsDir, defaultRunsDir].some((dir) => pathInsideDir(root, artifactPath, dir)) ? [artifactPath] : [];
+}
+
 function existingWatcherArtifacts(dir: string): string[] {
   const artifacts = [join(dir, "workflow-watcher.log"), join(dir, "workflow-watcher.jsonl"), join(dir, "workflow-state.json")];
   const reviewRequests = join(dir, "review-requests");
@@ -66,7 +79,7 @@ export function runtimeArtifactExcludes(root: string, contract: WorkflowContract
   const configuredRunsDir = runsDir(root, contract);
   const defaultRunsDir = join(root, ".pi/runs");
   const runDirs = configuredRunsDir === defaultRunsDir ? [configuredRunsDir] : [configuredRunsDir, defaultRunsDir];
-  return normalizedExcludePaths(root, [...runDirs.flatMap(existingWatcherArtifacts), join(root, ".pi/tasks"), ...extraPaths]);
+  return normalizedExcludePaths(root, [...runDirs.flatMap(existingWatcherArtifacts), ...importedRuntimeArtifactPaths(root, contract), join(root, ".pi/tasks"), ...extraPaths]);
 }
 
 export function diffSnapshot(root: string, options: { excludePaths?: string[] } = {}): { diffHash: string; dirtyFiles: string[] } {

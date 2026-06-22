@@ -333,14 +333,16 @@ The importer is intentionally narrow. It promotes evidence to `reviewer_evidence
 - the artifact contains exactly one fenced `workflow-review-evidence` JSON block
 - the schema is `pi-workflow-review-evidence/v1`
 - the evidence matches a pending `pi-workflow-review-request/v1` created by `workflow_review_packet`
-- repo, request id, diff hash, reviewed files, mode verdict, and criteria all validate
+- reviewed files exactly match the current dirty review scope; clean extra files are rejected when creating requests
+- repo, request id, diff hash, reviewed files, mode verdict, required criteria, and reviewer provenance all validate
+- reviewer provenance identifies a reviewer/oracle `pi-subagents` run and includes the packet attestation
 - the request has not already been consumed
 
 Use this instead of relying on manual `OK_TO_COMMIT` prose. Manual notes remain useful breadcrumbs, but they do not unlock protected commits.
 
 ## Evidence trust boundaries
 
-- **Trusted evidence sources:** `workflow_gate` gate runs and validated `workflow_import_review_evidence` imports (`reviewer_evidence`) whose request and diff hash match the current repo state.
+- **Trusted evidence sources:** `workflow_gate` gate runs and validated `workflow_import_review_evidence` imports (`reviewer_evidence`) whose request, reviewer/oracle provenance, and diff hash match the current repo state.
 - **Manual evidence sources:** `/workflow note` and `workflow_note` entries (`manual_note`) are audit breadcrumbs only. They can explain what a human observed, but manual notes do not unlock commits by default.
 - **Commit authorization:** protected `git commit` is allowed only with current trusted reviewer/oracle evidence plus a current required `beforeCommit` or `final` gate pass from `workflow_gate`. Manual gate/review notes are insufficient unless policy is intentionally changed in code.
 - **Gate timeouts:** each gate command can declare `timeoutSeconds`; timed-out commands fail the gate, stop subsequent gate commands, mark the command as timed out in details/log output, and do not authorize commits.

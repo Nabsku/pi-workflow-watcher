@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import workflowWatcher from "../index.ts";
 import { setWorkflowWatcherEnabled } from "../src/toggle.ts";
-import { consumeReviewRequest, loadReviewRequest, parseReviewEvidenceFence, reviewFilesMatch, validateReviewCriteria, validateReviewEvidenceForRequest, writeReviewRequest } from "../src/review-evidence.ts";
+import { consumeReviewRequest, loadReviewRequest, parseReviewEvidenceFence, REVIEWER_ATTESTATION, reviewFilesMatch, validateReviewCriteria, validateReviewerProvenance, validateReviewEvidenceForRequest, writeReviewRequest } from "../src/review-evidence.ts";
 import { readContract } from "../src/contract.ts";
 import { diffSnapshot, runtimeArtifactExcludes } from "../src/state.ts";
 import type { ReviewEvidence, ReviewRequest } from "../src/types.ts";
@@ -153,7 +153,7 @@ function reviewEvidenceFixture(root: string, overrides: Partial<ReviewEvidence> 
     reviewedDiffHash: "diff-smoke",
     reviewedAt: "2026-06-19T00:00:00.000Z",
     reviewedFiles: ["README.md", "src/app.ts"],
-    reviewer: { role: "reviewer", name: "smoke", source: "test" },
+    reviewer: { role: "reviewer", name: "smoke", source: "pi-subagents", runId: "smoke-run-1", attestation: REVIEWER_ATTESTATION },
     verdict: "OK_TO_COMMIT",
     criteria: [{ id: "scope", status: "satisfied", evidence: "reviewed expected files" }],
     verification: [],
@@ -301,6 +301,8 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(validateReviewEvidenceForRequest(root, { ...evidence, reviewedFiles: ["README.md"] }, request).error?.includes("reviewedFiles"), "reviewed files mismatch should reject");
   assert(validateReviewEvidenceForRequest(root, { ...evidence, verdict: "OK_TO_PRESENT" }, request).error?.includes("not allowed"), "verdict outside request mode should reject");
   assert(validateReviewCriteria([]).error?.includes("non-empty"), "empty criteria should reject");
+  assert(validateReviewerProvenance(undefined).error?.includes("provenance"), "reviewer provenance should be required");
+  assert(validateReviewEvidenceForRequest(root, { ...evidence, reviewer: { role: "reviewer", name: "smoke", source: "manual" } }, request).error?.includes("pi-subagents"), "manual/self-authored reviewer provenance should reject");
   assert(validateReviewCriteria([{ id: "optional", required: false, status: "unsatisfied" }]).ok === true, "optional unsatisfied criteria should not block");
   assert(validateReviewCriteria([{ id: "required", status: "unsatisfied" }]).error?.includes("required criterion required"), "required unsatisfied criteria should reject");
 }
@@ -436,6 +438,8 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(packet.content[0].text.includes("Manual notes are recorded context, not trusted approval."), "review packet should include manual note trust phrase");
   assert((packet.details.request as { id?: string } | undefined)?.id, "review packet should persist request details");
   assert((packet.details.request as { expectedFiles?: string[] } | undefined)?.expectedFiles?.length === 2, "review packet should bind expected files");
+  const cleanExtraPacket = await tool("workflow_review_packet").execute("packet", { cwd: root, files: [...reviewFiles, "README.md"], mode: "commit" }) as { details: { requestError?: string; request?: unknown } };
+  assert(cleanExtraPacket.details.requestError?.includes("not in current diff") && !cleanExtraPacket.details.request, "review packet should reject clean extra files that import scope cannot consume");
   assert((packet.details.ownership as { highRisk?: string[] }).highRisk?.includes("src/secure/auth.ts"), "review packet details should include ownership notes");
   assert((packet.details.ownership as { highRisk?: string[] }).highRisk?.includes("src/secure/nested/auth.ts"), "review packet should match recursive ** ownership patterns");
   assert(packet.content[0].text.includes("## Architecture checklist"), "review packet should include architecture checklist");
@@ -1413,6 +1417,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   writeFileSync(join(root, ".pi/runs/review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
   const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: ".pi/runs/review.md" }) as { details: { accepted: boolean; error?: string } };
   assert(result.details.accepted === true, `import should exclude explicit runtime artifact path even when runsDir exists in the index: ${result.details.error ?? ""}`);
+  assert(fixtureDiffHash(root) === diffHash, "imported runtime artifact path should remain excluded after import");
 }
 
 {

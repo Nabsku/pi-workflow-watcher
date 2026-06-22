@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import workflowWatcher from "../index.ts";
 import { setWorkflowWatcherEnabled } from "../src/toggle.ts";
+import { REVIEWER_ATTESTATION } from "../src/review-evidence.ts";
 
 type Tool = { name: string; execute: (id: string, params: Record<string, unknown>) => Promise<unknown> };
 type Hook = (event: Record<string, unknown>, ctx?: Record<string, unknown>) => Promise<unknown> | unknown;
@@ -121,7 +122,7 @@ const reviewedEvidence = {
   reviewedDiffHash: request.diffHash,
   reviewedAt: new Date().toISOString(),
   reviewedFiles: request.expectedFiles,
-  reviewer: { role: "reviewer", name: "e2e", source: "test" },
+  reviewer: { role: "reviewer", name: "e2e", source: "pi-subagents", runId: "e2e-run-1", attestation: REVIEWER_ATTESTATION },
   verdict: request.allowedVerdicts[0],
   criteria: [{ id: "e2e", status: "satisfied", evidence: "reviewed current diff" }],
   verification: [],

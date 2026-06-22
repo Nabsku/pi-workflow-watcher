@@ -4,7 +4,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { analyze, readContract } from "./contract.ts";
 import { normalizeDirtyPath } from "./fs-git.ts";
 import { pathMatchesPattern } from "./guards.ts";
-import { allowedVerdictsForMode, normalizeReviewFiles, REVIEW_EVIDENCE_SCHEMA, REVIEW_REQUEST_SCHEMA, writeReviewRequest } from "./review-evidence.ts";
+import { allowedVerdictsForMode, normalizeReviewFiles, REVIEW_EVIDENCE_SCHEMA, REVIEW_REQUEST_SCHEMA, REVIEWER_ATTESTATION, writeReviewRequest } from "./review-evidence.ts";
 import { diffSnapshot, runtimeArtifactExcludes } from "./state.ts";
 import type { ReviewMode, ReviewPacketDetails, ReviewRequest, WorkflowContract } from "./types.ts";
 import { evidenceDetails } from "./evidence-status.ts";
@@ -79,7 +79,7 @@ function reviewEvidenceTemplate(root: string, request: ReviewRequest): string {
     reviewedDiffHash: request.diffHash,
     reviewedAt: new Date().toISOString(),
     reviewedFiles: request.expectedFiles,
-    reviewer: { role: "reviewer", name: "", source: "" },
+    reviewer: { role: "reviewer|oracle", name: "", source: "pi-subagents", runId: "<pi-subagents-run-id>", attestation: REVIEWER_ATTESTATION },
     verdict: request.allowedVerdicts[0],
     criteria: [{ id: "scope", status: "satisfied", evidence: "Reviewed expected files for this request." }],
     verification: [],
@@ -103,8 +103,10 @@ export function reviewPacketDetails(root: string, params: { files?: unknown; mod
   if (!requestError) {
     const expectedFiles = expected.files ?? [];
     const outside = touched.files.filter((file) => !expectedFiles.includes(file));
+    const cleanExtras = expectedFiles.filter((file) => !touched.files.includes(file));
     if (expectedFiles.length === 0) requestError = "files must explicitly list the review scope";
     else if (outside.length) requestError = `current diff contains files outside expected files: ${outside.join(", ")}`;
+    else if (cleanExtras.length) requestError = `expected files are not in current diff: ${cleanExtras.join(", ")}`;
     else {
       request = { schema: REVIEW_REQUEST_SCHEMA, id: requestId(root, current.diffHash, expectedFiles), createdAt: new Date().toISOString(), repo: root, diffHash: current.diffHash, expectedFiles, mode: modeResult.mode ?? "commit", allowedVerdicts: allowedVerdictsForMode(modeResult.mode ?? "commit"), status: "pending", consumedAt: null };
       requestPath = writeReviewRequest(root, request);
@@ -146,6 +148,7 @@ export function reviewPacketDetails(root: string, params: { files?: unknown; mod
     "",
     "## Review evidence import requirements",
     "- Reviewer/oracle verdict must be allowed by the pending review request.",
+    "- Evidence reviewer provenance must identify a reviewer/oracle pi-subagents run and include the attestation from the draft.",
     "- Evidence artifact must include one workflow-review-evidence JSON fence with schema pi-workflow-review-evidence/v1 for the current diffHash.",
     "- Import trusted evidence with workflow_import_review_evidence. Trusted state source is reviewer_evidence. Manual notes are recorded context, not trusted approval.",
     "",
