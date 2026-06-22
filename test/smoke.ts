@@ -2,10 +2,11 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, statSync, utimesSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import workflowWatcher from "../index.ts";
 import { setWorkflowWatcherEnabled } from "../src/toggle.ts";
 import { consumeReviewRequest, loadReviewRequest, parseReviewEvidenceFence, reviewFilesMatch, validateReviewCriteria, validateReviewEvidenceForRequest, writeReviewRequest } from "../src/review-evidence.ts";
+import { readContract } from "../src/contract.ts";
+import { diffSnapshot, runtimeArtifactExcludes } from "../src/state.ts";
 import type { ReviewEvidence, ReviewRequest } from "../src/types.ts";
 
 type Tool = { name: string; execute: (id: string, params: Record<string, unknown>) => Promise<unknown> };
@@ -60,16 +61,8 @@ function gitOut(args: string[], cwd: string): string {
 }
 
 function fixtureDiffHash(root: string): string {
-  const status = gitOut(["status", "--short"], root);
-  const dirty = status ? status.split("\n").map((line) => line.trimEnd()).filter(Boolean) : [];
-  const diff = gitOut(["diff", "HEAD", "--binary"], root);
-  const hash = createHash("sha256").update(diff).update("\0").update(dirty.join("\n"));
-  for (const entry of dirty) if (entry.trimStart().startsWith("??")) {
-    const rel = entry.slice(3).trim();
-    const path = join(root, rel);
-    if (existsSync(path) && statSync(path).isFile()) hash.update("\0UNTRACKED\0").update(rel).update("\0").update(readFileSync(path));
-  }
-  return hash.digest("hex");
+  const contract = readContract(root).contract;
+  return diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, contract) }).diffHash;
 }
 
 function repo(): string {
@@ -172,7 +165,7 @@ function reviewEvidenceFixture(root: string, overrides: Partial<ReviewEvidence> 
 function commitBaselineWithReviewArtifactIgnored(root: string): void {
   writeFileSync(join(root, ".gitignore"), "review.md\n");
   writeFileSync(join(root, "file.txt"), "one\n");
-  git(["add", ".gitignore", "file.txt"], root);
+  git(["add", ".gitignore", ".pi/workflows.json", "file.txt"], root);
   git(["commit", "-m", "init"], root);
 }
 
@@ -489,6 +482,20 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   assert(packet.details.touchedFiles.includes(".pi/plans/plan.md"), "broad .pi runsDir must not exclude plan files from review scope");
   assert(!packet.details.excludedFiles?.includes(".pi/plans/plan.md"), "plan file should not be reported as runtime artifact");
   assert(packet.details.request?.id, "plan review request should still be created with broad .pi runsDir config");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
+  writeFileSync(join(root, ".gitignore"), "scratch/ignored.log\n");
+  git(["add", ".pi/workflows.json", ".gitignore"], root);
+  git(["commit", "-m", "baseline"], root);
+  mkdirSync(join(root, "scratch"), { recursive: true });
+  writeFileSync(join(root, "scratch/ignored.log"), "ignored\n");
+  writeFileSync(join(root, "scratch/keep.txt"), "keep\n");
+  const snap = diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, readContract(root).contract) });
+  assert(snap.dirtyFiles.includes("?? scratch/keep.txt"), "untracked directory expansion should include non-ignored files");
+  assert(!snap.dirtyFiles.includes("?? scratch/ignored.log"), "untracked directory expansion must honor gitignore");
 }
 
 {
@@ -1379,7 +1386,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   const root = repo();
   writeContract(root, validContract());
   writeFileSync(join(root, "file.txt"), "one\n");
-  git(["add", "file.txt"], root);
+  git(["add", ".pi/workflows.json", "file.txt"], root);
   git(["commit", "-m", "init"], root);
   writeFileSync(join(root, "file.txt"), "two\n");
   const diffHash = fixtureDiffHash(root);
@@ -1394,8 +1401,45 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
 {
   const root = repo();
   writeContract(root, validContract());
+  mkdirSync(join(root, ".pi/runs"), { recursive: true });
+  writeFileSync(join(root, ".pi/runs/.keep"), "\n");
   writeFileSync(join(root, "file.txt"), "one\n");
-  git(["add", "file.txt"], root);
+  git(["add", ".pi/workflows.json", ".pi/runs/.keep", "file.txt"], root);
+  git(["commit", "-m", "init"], root);
+  writeFileSync(join(root, "file.txt"), "two\n");
+  const diffHash = fixtureDiffHash(root);
+  writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["file.txt"] }));
+  const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] });
+  writeFileSync(join(root, ".pi/runs/review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
+  const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: ".pi/runs/review.md" }) as { details: { accepted: boolean; error?: string } };
+  assert(result.details.accepted === true, `import should exclude explicit runtime artifact path even when runsDir exists in the index: ${result.details.error ?? ""}`);
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
+  writeFileSync(join(root, "file.txt"), "one\n");
+  writeFileSync(join(root, "other.txt"), "one\n");
+  git(["add", ".pi/workflows.json", "file.txt", "other.txt"], root);
+  git(["commit", "-m", "init"], root);
+  writeFileSync(join(root, "file.txt"), "two\n");
+  writeFileSync(join(root, "other.txt"), "two\n");
+  const diffHash = fixtureDiffHash(root);
+  const request = reviewRequestFixture(root, { diffHash, expectedFiles: ["file.txt", "other.txt"] });
+  const requestPath = writeReviewRequest(root, request);
+  writeFileSync(requestPath, `${JSON.stringify({ ...request, expectedFiles: ["file.txt"] }, null, 2)}\n`, "utf8");
+  mkdirSync(join(root, ".pi/runs"), { recursive: true });
+  const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] });
+  writeFileSync(join(root, ".pi/runs/review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
+  const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: ".pi/runs/review.md" }) as { details: { accepted: boolean; error?: string } };
+  assert(result.details.accepted === false && result.details.error?.includes("current review scope"), "tampered review request expectedFiles must not narrow current dirty scope");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
+  writeFileSync(join(root, "file.txt"), "one\n");
+  git(["add", ".pi/workflows.json", "file.txt"], root);
   git(["commit", "-m", "init"], root);
   writeFileSync(join(root, "file.txt"), "two\n");
   const diffHash = fixtureDiffHash(root);

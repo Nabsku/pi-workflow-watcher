@@ -45,6 +45,11 @@ function pathIsExcluded(rel: string, excludePaths: string[]): boolean {
   return excludePaths.some((excluded) => normalized === excluded || normalized.startsWith(`${excluded}/`));
 }
 
+function untrackedFiles(root: string, rel: string, excludePaths: string[]): string[] {
+  const out = git(["ls-files", "--others", "--exclude-standard", "--", rel], root);
+  return out ? out.split("\n").map((line) => line.trimEnd().replace(/\\/g, "/")).filter((file) => file && !pathIsExcluded(file, excludePaths)).sort() : [];
+}
+
 function existingWatcherArtifacts(dir: string): string[] {
   const artifacts = [join(dir, "workflow-watcher.log"), join(dir, "workflow-watcher.jsonl"), join(dir, "workflow-state.json")];
   const reviewRequests = join(dir, "review-requests");
@@ -66,7 +71,17 @@ export function runtimeArtifactExcludes(root: string, contract: WorkflowContract
 
 export function diffSnapshot(root: string, options: { excludePaths?: string[] } = {}): { diffHash: string; dirtyFiles: string[] } {
   const excluded = normalizedExcludePaths(root, options.excludePaths);
-  const dirty = dirtyFiles(root).filter((entry) => !pathIsExcluded(normalizeDirtyPath(entry), excluded));
+  const dirty: string[] = [];
+  for (const entry of dirtyFiles(root)) {
+    const rel = normalizeDirtyPath(entry);
+    if (pathIsExcluded(rel, excluded)) continue;
+    if (entry.trimStart().startsWith("??")) {
+      const files = untrackedFiles(root, rel, excluded);
+      if (files.length) dirty.push(...files.map((file) => `?? ${file}`));
+      continue;
+    }
+    dirty.push(entry);
+  }
   const diffArgs = excluded.length ? ["diff", "HEAD", "--binary", "--", ".", ...excluded.map((entry) => `:(exclude)${entry}`)] : ["diff", "HEAD", "--binary"];
   const diff = git(diffArgs, root);
   const hash = createHash("sha256").update(diff).update("\0").update(dirty.join("\n"));

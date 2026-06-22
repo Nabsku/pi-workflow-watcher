@@ -2,9 +2,10 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { readContract, isObject } from "./contract.ts";
 import { diffSnapshot, readState, runtimeArtifactExcludes, runsDir, stateFile, watcherLog, writeState } from "./state.ts";
+import { normalizeDirtyPath } from "./fs-git.ts";
 import { textResult } from "./result.ts";
 import { appendLedgerEvent } from "./guard-logging.ts";
-import type { AgentToolResult, ReviewEvidence, ReviewEvidenceCriterion, ReviewEvidenceImportDetails, ReviewEvidenceParseResult, ReviewMode, ReviewRequest } from "./types.ts";
+import type { AgentToolResult, ReviewEvidence, ReviewEvidenceCriterion, ReviewEvidenceImportDetails, ReviewEvidenceParseResult, ReviewMode, ReviewRequest, WorkflowContract } from "./types.ts";
 
 export const REVIEW_EVIDENCE_SCHEMA = "pi-workflow-review-evidence/v1";
 export const REVIEW_REQUEST_SCHEMA = "pi-workflow-review-request/v1";
@@ -131,6 +132,26 @@ export function loadReviewEvidenceArtifact(root: string, artifactPath: unknown):
   catch (err) { return { artifactPath: resolved, error: `could not read artifactPath: ${err instanceof Error ? err.message : String(err)}` }; }
 }
 
+function pathInsideDir(root: string, path: string, dir: string): boolean {
+  const rel = relative(resolve(root, dir), resolve(root, path));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function importExcludePaths(root: string, contract: WorkflowContract | null, artifactPath: string | undefined): string[] {
+  if (!artifactPath) return runtimeArtifactExcludes(root, contract);
+  const candidateRunsDirs = [runsDir(root, contract), join(root, ".pi/runs")];
+  const artifactIsRuntime = candidateRunsDirs.some((dir) => pathInsideDir(root, artifactPath, dir));
+  return runtimeArtifactExcludes(root, contract, artifactIsRuntime ? [artifactPath] : []);
+}
+
+function requestScopeMatchesCurrentDiff(root: string, request: ReviewRequest, snap: { dirtyFiles: string[] }): { ok: boolean; error?: string } {
+  const current = normalizeReviewFiles(root, snap.dirtyFiles.map((entry) => normalizeDirtyPath(entry)));
+  if (current.error) return { ok: false, error: current.error };
+  const scope = reviewFilesMatch(root, current.files ?? [], request.expectedFiles);
+  if (!scope.ok) return { ok: false, error: `review request expectedFiles do not match current review scope: ${(scope.error ?? "scope mismatch").replace("reviewedFiles", "currentFiles")}` };
+  return { ok: true };
+}
+
 export function importReviewEvidence(root: string, params: Record<string, unknown>): AgentToolResult<ReviewEvidenceImportDetails> {
   const read = readContract(root); const contract = read.contract;
   const loaded = loadReviewEvidenceArtifact(root, params.artifactPath);
@@ -141,9 +162,11 @@ export function importReviewEvidence(root: string, params: Record<string, unknow
   if (requestResult.error || !requestResult.request) return reviewEvidenceImportError(root, requestResult.error ?? "review request is not pending", loaded.artifactPath);
   const request = requestResult.request;
   if (resolve(request.repo) !== resolve(root)) return reviewEvidenceImportError(root, "review request repo does not match current repo root", loaded.artifactPath);
-  const excluded = runtimeArtifactExcludes(root, contract);
+  const excluded = importExcludePaths(root, contract, loaded.artifactPath);
   const snap = diffSnapshot(root, { excludePaths: excluded });
   if (parsed.evidence.reviewedDiffHash !== snap.diffHash) return reviewEvidenceImportError(root, "reviewedDiffHash does not match current repo diffHash", loaded.artifactPath);
+  const scope = requestScopeMatchesCurrentDiff(root, request, snap);
+  if (!scope.ok) return reviewEvidenceImportError(root, scope.error ?? "review request scope does not match current diff", loaded.artifactPath);
   const validation = validateReviewEvidenceForRequest(root, parsed.evidence, request);
   if (!validation.ok) return reviewEvidenceImportError(root, validation.error ?? "review evidence does not match review request", loaded.artifactPath);
   const at = new Date().toISOString();
