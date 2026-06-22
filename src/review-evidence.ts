@@ -129,6 +129,23 @@ export function validateReviewerProvenance(reviewer: unknown, root?: string): { 
   return { ok: true };
 }
 
+function reviewerArtifactContainsEvidence(root: string, evidence: ReviewEvidence): { ok: boolean; error?: string } {
+  const reviewer = evidence.reviewer;
+  if (!isObject(reviewer) || typeof reviewer.artifactPath !== "string") return { ok: false, error: "reviewer artifactPath provenance is required" };
+  const artifact = resolve(reviewer.artifactPath);
+  let text: string;
+  try { text = readFileSync(artifact, "utf8"); }
+  catch { return { ok: false, error: "reviewer artifactPath could not be read" }; }
+  const parsed = parseReviewEvidenceFence(text);
+  if (!parsed.ok) return { ok: false, error: "reviewer artifactPath must contain workflow-review-evidence fence" };
+  const reviewed = parsed.evidence;
+  if (reviewed.reviewRequestId !== evidence.reviewRequestId || reviewed.reviewedDiffHash !== evidence.reviewedDiffHash || reviewed.verdict !== evidence.verdict) return { ok: false, error: "reviewer artifactPath evidence does not match imported evidence" };
+  const files = reviewFilesMatch(root, reviewed.reviewedFiles, evidence.reviewedFiles);
+  if (!files.ok) return { ok: false, error: "reviewer artifactPath reviewedFiles do not match imported evidence" };
+  if (JSON.stringify(reviewed.criteria) !== JSON.stringify(evidence.criteria)) return { ok: false, error: "reviewer artifactPath criteria do not match imported evidence" };
+  return { ok: true };
+}
+
 export function validateReviewEvidenceForRequest(root: string, evidence: ReviewEvidence, request: ReviewRequest): { ok: boolean; error?: string; reviewedFiles?: string[] } {
   if (evidence.reviewRequestId !== request.id) return { ok: false, error: "reviewRequestId does not match pending request" };
   if (resolve(evidence.repo) !== resolve(root)) return { ok: false, error: "evidence repo does not match current repo root" };
@@ -139,6 +156,8 @@ export function validateReviewEvidenceForRequest(root: string, evidence: ReviewE
   const criteria = validateReviewCriteria(evidence.criteria);
   const provenance = validateReviewerProvenance(evidence.reviewer, root);
   if (!provenance.ok) return provenance;
+  const reviewerArtifact = reviewerArtifactContainsEvidence(root, evidence);
+  if (!reviewerArtifact.ok) return reviewerArtifact;
   if (!criteria.ok) return criteria;
   return { ok: true, reviewedFiles: files.reviewed };
 }

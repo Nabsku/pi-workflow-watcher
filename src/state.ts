@@ -53,8 +53,8 @@ function untrackedFiles(root: string, rel: string, excludePaths: string[]): stri
 export function dedicatedRuntimeDir(root: string, dir: string): boolean {
   const rel = relative(root, dir).replace(/\\/g, "/");
   if (rel === ".pi/runs" || rel.startsWith(".pi/")) return true;
-  const segments = rel.split("/").filter(Boolean).map((segment) => segment.toLowerCase());
-  return segments.some((segment) => segment === "runs" || segment === "artifacts" || segment === "workflow-artifacts" || segment === "workflow");
+  const first = rel.split("/").filter(Boolean)[0]?.toLowerCase();
+  return first === "runs" || first === "artifacts" || first === "workflow-artifacts";
 }
 
 function pathInsideDir(root: string, path: string, dir: string): boolean {
@@ -83,9 +83,9 @@ function existingWatcherArtifacts(dir: string): string[] {
 export function runtimeArtifactExcludes(root: string, contract: WorkflowContract | null, extraPaths: string[] = []): string[] {
   const configured = runsDirResolution(root, contract);
   const defaultRunsDir = join(root, ".pi/runs");
-  const configuredIsRuntime = configured.valid && dedicatedRuntimeDir(root, configured.path);
-  const runDirs = configuredIsRuntime && configured.path !== defaultRunsDir ? [configured.path, defaultRunsDir] : [defaultRunsDir];
-  return normalizedExcludePaths(root, [...runDirs, ...runDirs.flatMap(existingWatcherArtifacts), ...importedRuntimeArtifactPaths(root, contract, runDirs), join(root, ".pi/tasks"), ...extraPaths]);
+  const watcherDirs = configured.valid && configured.path !== defaultRunsDir ? [configured.path, defaultRunsDir] : [defaultRunsDir];
+  const wholeDirs = watcherDirs.filter((dir) => dedicatedRuntimeDir(root, dir));
+  return normalizedExcludePaths(root, [...wholeDirs, ...watcherDirs.flatMap(existingWatcherArtifacts), ...importedRuntimeArtifactPaths(root, contract, wholeDirs), join(root, ".pi/tasks"), ...extraPaths]);
 }
 
 export function diffSnapshot(root: string, options: { excludePaths?: string[] } = {}): { diffHash: string; dirtyFiles: string[] } {

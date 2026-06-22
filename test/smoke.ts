@@ -148,25 +148,26 @@ function reviewRequestFixture(root: string, overrides: Partial<ReviewRequest> = 
 function reviewerArtifact(root: string, runId = "smoke-run-1"): string {
   const dir = join(root, "..", "subagent-artifacts");
   mkdirSync(dir, { recursive: true });
-  const path = join(dir, `${runId}_output.md`);
-  writeFileSync(path, `pi-subagents reviewer run ${runId}\n`, "utf8");
-  return path;
+  return join(dir, `${runId}_output.md`);
 }
 function reviewEvidenceFixture(root: string, overrides: Partial<ReviewEvidence> = {}): ReviewEvidence {
-  return {
+  const artifactPath = reviewerArtifact(root);
+  const evidence = {
     schema: "pi-workflow-review-evidence/v1",
     reviewRequestId: "rw-smoke",
     repo: root,
     reviewedDiffHash: "diff-smoke",
     reviewedAt: "2026-06-19T00:00:00.000Z",
     reviewedFiles: ["README.md", "src/app.ts"],
-    reviewer: { role: "reviewer", name: "smoke", source: "pi-subagents", runId: "smoke-run-1", artifactPath: reviewerArtifact(root), attestation: REVIEWER_ATTESTATION },
+    reviewer: { role: "reviewer", name: "smoke", source: "pi-subagents", runId: "smoke-run-1", artifactPath, attestation: REVIEWER_ATTESTATION },
     verdict: "OK_TO_COMMIT",
     criteria: [{ id: "scope", status: "satisfied", evidence: "reviewed expected files" }],
     verification: [],
     residualRisks: [],
     ...overrides,
-  };
+  } as ReviewEvidence;
+  writeFileSync(artifactPath, `pi-subagents reviewer run smoke-run-1\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`, "utf8");
+  return evidence;
 }
 
 function commitBaselineWithReviewArtifactIgnored(root: string): void {
@@ -511,6 +512,22 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   writeFileSync(join(root, "runs/review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
   const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: "runs/review.md" }) as { details: { accepted: boolean; error?: string } };
   assert(result.details.accepted === true, `configured dedicated runsDir artifact should be excluded during import: ${result.details.error ?? ""}`);
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract({ artifacts: { plansDir: ".pi/plans", runsDir: "custom", agentInstructions: "AGENTS.md" } }));
+  writeFileSync(join(root, "file.txt"), "one\n");
+  git(["add", "."], root);
+  git(["commit", "-m", "baseline"], root);
+  writeFileSync(join(root, "file.txt"), "two\n");
+  const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: ["file.txt"] }) as { details: { request?: { id: string; diffHash: string; expectedFiles: string[] }; requestError?: string } };
+  assert(packet.details.request && !packet.details.requestError, "custom runsDir review request should be created");
+  const evidence = reviewEvidenceFixture(root, { reviewRequestId: packet.details.request.id, reviewedDiffHash: packet.details.request.diffHash, reviewedFiles: packet.details.request.expectedFiles });
+  mkdirSync(join(root, "custom"), { recursive: true });
+  writeFileSync(join(root, "custom/workflow-review-evidence-smoke.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
+  const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: "custom/workflow-review-evidence-smoke.md" }) as { details: { accepted: boolean; error?: string } };
+  assert(result.details.accepted === true, `custom runsDir watcher-owned artifacts should be excluded without hiding whole tree: ${result.details.error ?? ""}`);
 }
 
 {

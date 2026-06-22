@@ -117,7 +117,6 @@ assert(!packet.details.requestError && packet.details.request, `review packet sh
 const request = packet.details.request;
 const reviewerArtifact = join(root, "..", "subagent-artifacts", "e2e-run-1_output.md");
 mkdirSync(join(root, "..", "subagent-artifacts"), { recursive: true });
-writeFileSync(reviewerArtifact, "pi-subagents reviewer run e2e-run-1\n");
 const reviewedEvidence = {
   schema: "pi-workflow-review-evidence/v1",
   reviewRequestId: request.id,
@@ -131,6 +130,7 @@ const reviewedEvidence = {
   verification: [],
   residualRisks: [],
 };
+writeFileSync(reviewerArtifact, `pi-subagents reviewer run e2e-run-1\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(reviewedEvidence)}\n\`\`\`\n`);
 mkdirSync(join(root, ".pi/runs"), { recursive: true });
 writeFileSync(join(root, ".pi/runs/workflow-review-evidence-e2e.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(reviewedEvidence)}\n\`\`\`\n`);
 const importResult = await tool("workflow_import_review_evidence").execute("accept", {
