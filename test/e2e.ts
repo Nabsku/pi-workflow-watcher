@@ -1,10 +1,10 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import workflowWatcher from "../index.ts";
 import { setWorkflowWatcherEnabled } from "../src/toggle.ts";
+import { REVIEWER_ATTESTATION } from "../src/review-evidence.ts";
 
 type Tool = { name: string; execute: (id: string, params: Record<string, unknown>) => Promise<unknown> };
 type Hook = (event: Record<string, unknown>, ctx?: Record<string, unknown>) => Promise<unknown> | unknown;
@@ -36,9 +36,6 @@ function git(args: string[], cwd: string) {
   execFileSync("git", args, { cwd, stdio: "ignore" });
 }
 
-function gitOut(args: string[], cwd: string): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-}
 
 function repo(): string {
   const root = mkdtempSync(join(tmpdir(), "pi-workflow-e2e-"));
@@ -48,18 +45,6 @@ function repo(): string {
   return root;
 }
 
-function diffHash(root: string): string {
-  const status = gitOut(["status", "--short"], root);
-  const dirty = status ? status.split("\n").map((line) => line.trimEnd()).filter(Boolean) : [];
-  const diff = gitOut(["diff", "HEAD", "--binary"], root);
-  const hash = createHash("sha256").update(diff).update("\0").update(dirty.join("\n"));
-  for (const entry of dirty) if (entry.trimStart().startsWith("??")) {
-    const rel = entry.slice(3).trim();
-    const path = join(root, rel);
-    if (existsSync(path) && statSync(path).isFile()) hash.update("\0UNTRACKED\0").update(rel).update("\0").update(readFileSync(path));
-  }
-  return hash.digest("hex");
-}
 
 function writeContract(root: string) {
   mkdirSync(join(root, ".pi/plans"), { recursive: true });
@@ -98,15 +83,14 @@ async function toolCallGuard(root: string, command: string) {
   return await handler({ toolName: "bash", input: { command }, cwd: root }) as { block?: boolean; reason?: string } | undefined;
 }
 
+
 const root = repo();
 setWorkflowWatcherEnabled(root, true);
 writeContract(root);
 writeFileSync(join(root, "package.json"), `${JSON.stringify({ scripts: { test: "node -e \"process.exit(0)\"", typecheck: "node -e \"process.exit(0)\"", build: "node -e \"process.exit(0)\"" } }, null, 2)}\n`);
+writeFileSync(join(root, ".gitignore"), "review.md\n");
 mkdirSync(join(root, "src"), { recursive: true });
 writeFileSync(join(root, "src/app.ts"), "export const value = 1;\n");
-git(["add", "."], root);
-git(["commit", "-m", "baseline"], root);
-
 writeFileSync(join(root, ".pi/plans/e2e.md"), [
   "# E2E plan",
   "- [x] baseline ready OK_TO_MARK_DONE",
@@ -114,6 +98,9 @@ writeFileSync(join(root, ".pi/plans/e2e.md"), [
   "- [ ] prepare commit evidence",
   "",
 ].join("\n"));
+git(["add", "."], root);
+git(["commit", "-m", "baseline"], root);
+
 
 const initialProgress = await tool("workflow_progress").execute("progress", { cwd: root, planPath: ".pi/plans/e2e.md" }) as { details: { currentSlice?: string; counts: { open?: number; completed?: number; total?: number } } };
 assert(initialProgress.details.currentSlice === "ship watched change", "progress should identify the first open slice");
@@ -125,28 +112,36 @@ const beforeEvidence = await toolCallGuard(root, "git commit -m e2e");
 assert(beforeEvidence?.block === true, "commit should be blocked before trusted review and gate evidence");
 assert(beforeEvidence.reason?.includes("missing current trusted review verdict"), `commit blocker should explain missing trusted review evidence, got: ${beforeEvidence.reason ?? "none"}`);
 
-const currentDiffHash = diffHash(root);
-const importResult = await tool("workflow_import_acceptance").execute("accept", {
+const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: ["src/app.ts"], mode: "commit" }) as { content: Array<{ text: string }>; details: { requestError?: string; request?: { id: string; repo: string; diffHash: string; expectedFiles: string[]; allowedVerdicts: string[] } } };
+assert(!packet.details.requestError && packet.details.request, `review packet should create request: ${packet.details.requestError ?? ""}`);
+const request = packet.details.request;
+const reviewerArtifact = join(root, "..", "subagent-artifacts", "e2e-run-1_output.md");
+mkdirSync(join(root, "..", "subagent-artifacts"), { recursive: true });
+const reviewedEvidence = {
+  schema: "pi-workflow-review-evidence/v1",
+  reviewRequestId: request.id,
+  repo: request.repo,
+  reviewedDiffHash: request.diffHash,
+  reviewedAt: new Date().toISOString(),
+  reviewedFiles: request.expectedFiles,
+  reviewer: { role: "reviewer", name: "e2e", source: "pi-subagents", runId: "e2e-run-1", artifactPath: reviewerArtifact, attestation: REVIEWER_ATTESTATION },
+  verdict: request.allowedVerdicts[0],
+  criteria: [{ id: "e2e", status: "satisfied", evidence: "reviewed current diff" }],
+  verification: [],
+  residualRisks: [],
+};
+writeFileSync(reviewerArtifact, `pi-subagents reviewer run e2e-run-1\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(reviewedEvidence)}\n\`\`\`\n`);
+mkdirSync(join(root, ".pi/runs"), { recursive: true });
+writeFileSync(join(root, ".pi/runs/workflow-review-evidence-e2e.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(reviewedEvidence)}\n\`\`\`\n`);
+const importResult = await tool("workflow_import_review_evidence").execute("accept", {
   cwd: root,
-  result: {
-    agent: "reviewer",
-    finalOutput: `Review clean.\n\n\`\`\`acceptance-report\n${JSON.stringify({
-      criteriaSatisfied: [{ id: "e2e", status: "satisfied", evidence: "reviewed current diff" }],
-      reviewFindings: [],
-      residualRisks: [],
-      provenance: { diffHash: currentDiffHash },
-    })}\n\`\`\``,
-    acceptance: {
-      status: "attested",
-      childReport: { criteriaSatisfied: [{ id: "e2e", status: "satisfied", evidence: "reviewed current diff" }], provenance: { diffHash: currentDiffHash } },
-      runtimeChecks: [{ status: "passed", command: "review" }],
-    },
-  },
-}) as { details: { accepted: boolean } };
-assert(importResult.details.accepted === true, "trusted reviewer acceptance should import for current diff");
+  artifactPath: ".pi/runs/workflow-review-evidence-e2e.md",
+}) as { details: { accepted: boolean; error?: string } };
+assert(importResult.details.accepted === true, `trusted review evidence should import for current diff: ${importResult.details.error ?? ""}`);
 
-const gate = await tool("workflow_gate").execute("gate", { cwd: root, gate: "beforeCommit" }) as { details: { status: string; gate: string } };
-assert(gate.details.gate === "beforeCommit" && gate.details.status === "pass", "beforeCommit gate should pass and persist evidence");
+messages.length = 0;
+await commands.workflow.handler("gate beforeCommit", { cwd: root });
+assert(messages[0]?.content.includes("gate beforeCommit: PASS"), "slash beforeCommit gate should pass and persist evidence");
 
 const evidence = await tool("workflow_export_evidence").execute("bundle", { cwd: root, planPath: ".pi/plans/e2e.md" }) as { details: { commitReady: boolean; bundlePath: string; evidencePath: string; missing: string[] } };
 assert(evidence.details.commitReady === true, `evidence bundle should be commit-ready, missing=${evidence.details.missing.join(",")}`);

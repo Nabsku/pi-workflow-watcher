@@ -23,7 +23,7 @@ Install from the package/repo according to your Pi package workflow, then verify
 Expected loaded commands/tools:
 
 - Slash command: `/workflow status|next|progress|doctor|evidence|why|review-prompt|bundle|dirty|note|gate|plan|shape-plan|new-plan|toggle|help`
-- Agent tools: `workflow_watch`, `workflow_next`, `workflow_init`, `workflow_approve_dirty_overlap`, `workflow_gate`, `workflow_progress`, `workflow_complete`, `workflow_export_evidence`, `workflow_note`, `workflow_review_packet`, `workflow_why`, `workflow_import_acceptance`
+- Agent tools: `workflow_watch`, `workflow_next`, `workflow_init`, `workflow_approve_dirty_overlap`, `workflow_gate`, `workflow_progress`, `workflow_complete`, `workflow_export_evidence`, `workflow_note`, `workflow_review_packet`, `workflow_why`, `workflow_import_review_evidence`
 
 If `/workflow help` is unavailable, restart Pi, confirm the package is in Pi's extension/package config, and check that the installed package includes `index.ts` plus the `pi.extensions` entry in `package.json`.
 
@@ -214,7 +214,7 @@ If the watcher reports dirty-file overlap, treat it as user work protection. Pre
 /workflow evidence
 ```
 
-A reviewer/oracle acceptance alone is not enough. The acceptance must be imported as trusted evidence with `workflow_import_acceptance`, must match the current diff hash, and must be paired with a fresh `workflow_gate beforeCommit` or `workflow_gate final` pass. If `/workflow evidence` says the review is manual/untrusted or stale, rerun/import reviewer evidence for the current diff.
+A reviewer/oracle acceptance alone is not enough. Review evidence must be imported as trusted evidence with `workflow_import_review_evidence`, must match a pending review request and the current diff hash, and must be paired with a fresh `workflow_gate beforeCommit` or `workflow_gate final` pass. If `/workflow evidence` says the review is manual/untrusted or stale, rerun/import reviewer evidence for the current diff.
 
 ### Gate timed out
 
@@ -232,7 +232,7 @@ A timed-out gate command fails the gate, stops later commands, and does not auth
 /workflow evidence
 ```
 
-Manual notes are useful audit breadcrumbs, but they are not trusted evidence by default. Use notes to preserve operator context; use validated `workflow_import_acceptance` reviewer/oracle imports and `workflow_gate` runs to unlock protected commits.
+Manual notes are useful audit breadcrumbs, but they are not trusted evidence by default. Use notes to preserve operator context; use validated `workflow_import_review_evidence` reviewer/oracle imports and `workflow_gate` runs to unlock protected commits.
 
 ## What the user sees but usually does not operate directly
 
@@ -324,23 +324,25 @@ Agent use:
 - record gate pass/fail evidence when produced outside `workflow_gate`
 - keep notes short; this is workflow evidence, not a transcript
 
-### `workflow_import_acceptance`
+### `workflow_import_review_evidence`
 
-Import a pi-subagents v0.26 reviewer/oracle acceptance artifact or status result as trusted review evidence.
+Import a Workflow Watcher-owned `workflow-review-evidence` Markdown artifact as trusted review evidence.
 
-The importer is intentionally narrow. It promotes evidence to `reviewer_tool` or `oracle_tool` only when all of these are true:
+The importer is intentionally narrow. It promotes evidence to `reviewer_evidence` only when all of these are true:
 
-- the child result is from a reviewer/oracle agent
-- there is exactly one child result; zero-child or aggregate/dynamic status objects are rejected
-- the result contains a fenced `acceptance-report` JSON block or a pi-subagents acceptance ledger with a child report
-- the acceptance ledger is not rejected and has no failed runtime checks or blocking review result
-- provenance includes a `diffHash`/`currentDiffHash`/`reviewedDiffHash` matching the current repo diff hash
+- the artifact contains exactly one fenced `workflow-review-evidence` JSON block
+- the schema is `pi-workflow-review-evidence/v1`
+- the evidence matches a pending `pi-workflow-review-request/v1` created by `workflow_review_packet`
+- reviewed files exactly match the current dirty review scope; clean extra files are rejected when creating requests
+- repo, request id, diff hash, reviewed files, mode verdict, required criteria, and reviewer provenance all validate
+- reviewer provenance identifies a reviewer/oracle `pi-subagents` run and includes the packet attestation
+- the request has not already been consumed
 
-Use this for pi-subagents acceptance-gated reviewer/oracle runs instead of relying on manual `OK_TO_COMMIT` prose. Manual notes remain useful breadcrumbs, but they do not unlock protected commits.
+Use this instead of relying on manual `OK_TO_COMMIT` prose. Manual notes remain useful breadcrumbs, but they do not unlock protected commits.
 
 ## Evidence trust boundaries
 
-- **Trusted evidence sources:** `workflow_gate` gate runs and validated `workflow_import_acceptance` reviewer/oracle imports (`reviewer_tool`/`oracle_tool`) whose provenance matches the current diff hash.
+- **Trusted evidence sources:** `workflow_gate` gate runs and validated `workflow_import_review_evidence` imports (`reviewer_evidence`) whose request, reviewer/oracle provenance, and diff hash match the current repo state.
 - **Manual evidence sources:** `/workflow note` and `workflow_note` entries (`manual_note`) are audit breadcrumbs only. They can explain what a human observed, but manual notes do not unlock commits by default.
 - **Commit authorization:** protected `git commit` is allowed only with current trusted reviewer/oracle evidence plus a current required `beforeCommit` or `final` gate pass from `workflow_gate`. Manual gate/review notes are insufficient unless policy is intentionally changed in code.
 - **Gate timeouts:** each gate command can declare `timeoutSeconds`; timed-out commands fail the gate, stop subsequent gate commands, mark the command as timed out in details/log output, and do not authorize commits.
@@ -358,7 +360,7 @@ Use this for pi-subagents acceptance-gated reviewer/oracle runs instead of relyi
 - `/workflow help` missing: package is not loaded; restart Pi, verify extension config, and confirm `package.json` has `pi.extensions: ["./index.ts"]`.
 - `/workflow doctor` says contract missing: run `workflow_init` or copy an example to `.pi/workflows.json`, then inspect/verify commands before trusting gates.
 - Schema or gate command errors: compare against canonical `schemas/pi-workflows.schema.json`; make every gate command reference an existing `commands.<name>` entry.
-- Commit blocked after review: import current reviewer/oracle evidence with `workflow_import_acceptance`; manual notes are breadcrumbs only.
+- Commit blocked after review: create a review packet with explicit files, then import current reviewer/oracle evidence with `workflow_import_review_evidence`; manual notes are breadcrumbs only.
 - Commit blocked after gate: rerun `workflow_gate beforeCommit` or `workflow_gate final` on the current diff hash.
 - Bundle export rejected: fix `artifacts.runsDir` so it is repo-local; absolute paths and `..` escapes are rejected.
 - Gate timed out: raise/fix `timeoutSeconds` only after understanding the hang, then rerun the gate.
@@ -367,7 +369,7 @@ Use this for pi-subagents acceptance-gated reviewer/oracle runs instead of relyi
 
 - Pi subagent acceptance gates validate a delegated child run: structured child report, evidence kinds, optional runtime verify commands, provenance ledger, and independent review status. They are best for reviewer/oracle evidence.
 - Watcher repo gates (`workflow_gate`) execute repository commands from `.pi/workflows.json` in the parent repo and persist command output as `workflow_gate` evidence. They remain the source of before-commit/final command verification.
-- Protected commits require both: current trusted reviewer/oracle evidence imported from a validated acceptance artifact, and a current `workflow_gate` beforeCommit/final pass.
+- Protected commits require both: current trusted reviewer/oracle evidence imported from validated Workflow Watcher review evidence, and a current `workflow_gate` beforeCommit/final pass.
 
 ## Hooks
 

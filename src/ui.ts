@@ -52,7 +52,7 @@ export function formatHelp(): string {
     "- /workflow plan .pi/plans/add-auth.md",
     "",
     "Trusted evidence warning:",
-    "- Protected commits require current trusted reviewer/oracle evidence imported by workflow_import_acceptance plus a current workflow_gate beforeCommit/final pass.",
+    "- Protected commits require current trusted Workflow Watcher review evidence imported by workflow_import_review_evidence plus a current workflow_gate beforeCommit/final pass.",
     "- Manual notes are recorded context, not trusted approval.",
   ].join("\n");
 }

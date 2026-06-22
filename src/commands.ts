@@ -7,10 +7,10 @@ import type { Finding, GateDetails, WatchDetails, WatchMode, WatchVerbosity, Wor
 import { textResult } from "./result.ts";
 import { cwdFrom, repoRoot, normalizeDirtyPath } from "./fs-git.ts";
 import { readContract, normalizePlanPath, starterContract, analyze } from "./contract.ts";
-import { stateFile, readState, writeState, diffSnapshot, runsDirResolution } from "./state.ts";
+import { stateFile, readState, writeState, diffSnapshot, runtimeArtifactExcludes, runsDirResolution } from "./state.ts";
 import { formatCompactStatus, details, formatWatch } from "./formatting.ts";
 import { evidenceDetails, formatEvidence, formatWhy, whyDetails, reviewPacketDetails, progressDetails, formatProgress, createEvidenceBundle, doctorDetails, formatDoctor } from "./evidence.ts";
-import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, importAcceptanceEvidence, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
+import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
 import { clearWorkflowUi, refreshWorkflowUi, formatHelp } from "./ui.ts";
 import { setWorkflowWatcherEnabled, workflowTogglePath, workflowWatcherEnabled } from "./toggle.ts";
 import { sendShapePlanRequest } from "./shape-plan-command.ts";
@@ -70,7 +70,10 @@ export function registerWorkflowCommand(pi: ExtensionAPI) {
         return;
       }
       if (sub === "review-prompt") {
-        const d = reviewPacketDetails(root);
+        const modeIndex = rest.findIndex((item) => item === "--mode");
+        const mode = modeIndex >= 0 ? rest[modeIndex + 1] : undefined;
+        const files = rest.filter((item, index) => item !== "--mode" && (modeIndex < 0 || index !== modeIndex + 1));
+        const d = reviewPacketDetails(root, { files, mode });
         send(d.packet, d);
         return;
       }
@@ -152,7 +155,7 @@ export function registerWorkflowCommand(pi: ExtensionAPI) {
         const gateDetails: GateDetails = { root, gate, dryRun, status: failed ? "fail" : "pass", commands: runs };
         gateDetails.logPath = appendGateEvidence(root, read.contract, gateDetails);
         gateDetails.statePath = stateFile(root, read.contract);
-        const state = readState(root, read.contract); const snap = diffSnapshot(root);
+        const state = readState(root, read.contract); const snap = diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, read.contract) });
         state.lastGateResult = { gate, status: gateDetails.status === "pass" ? "pass" : "fail", at: new Date().toISOString(), diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles, source: "workflow_gate" };
         if (gateDetails.status === "pass") state.checkpoint = { at: new Date().toISOString(), mode: "gate", diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles };
         writeState(root, read.contract, state);

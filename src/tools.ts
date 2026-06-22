@@ -7,10 +7,10 @@ import type { Finding, GateDetails, WatchDetails, WatchMode, WatchVerbosity, Wor
 import { textResult } from "./result.ts";
 import { cwdFrom, repoRoot, normalizeDirtyPath } from "./fs-git.ts";
 import { readContract, normalizePlanPath, starterContract, analyze } from "./contract.ts";
-import { stateFile, readState, writeState, diffSnapshot, runsDirResolution } from "./state.ts";
+import { stateFile, readState, writeState, diffSnapshot, runtimeArtifactExcludes, runsDirResolution } from "./state.ts";
 import { formatCompactStatus, details, formatWatch } from "./formatting.ts";
 import { evidenceDetails, formatEvidence, formatWhy, whyDetails, reviewPacketDetails, progressDetails, formatProgress, createEvidenceBundle, doctorDetails, formatDoctor } from "./evidence.ts";
-import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, importAcceptanceEvidence, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
+import { appendLedgerEvent, formatDirtyApprovals, approveDirtyOverlap, appendWorkflowNote, importReviewEvidence, resolveGateCommands, runGateCommands, formatGateCommandSummary, appendGateEvidence } from "./guards.ts";
 import { refreshWorkflowUi, formatHelp } from "./ui.ts";
 
 export function registerWorkflowTools(pi: ExtensionAPI) {
@@ -78,7 +78,7 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
         const details: GateDetails = { root, gate, dryRun, status: "fail", commands: resolved.commands, error: resolved.error };
         details.logPath = appendGateEvidence(root, contract, details);
         details.statePath = stateFile(root, contract);
-        const state = readState(root, contract); const snap = diffSnapshot(root);
+        const state = readState(root, contract); const snap = diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, contract) });
         state.lastGateResult = { gate, status: "fail", at: new Date().toISOString(), diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles, source: "workflow_gate" };
         writeState(root, contract, state);
         return textResult(`Workflow gate ${gate}: FAIL\n${resolved.error}\nEvidence: ${details.logPath}`, details);
@@ -93,7 +93,7 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
       const details: GateDetails = { root, gate, dryRun, status: failed ? "fail" : "pass", commands: runs };
       details.logPath = appendGateEvidence(root, contract, details);
       details.statePath = stateFile(root, contract);
-      const state = readState(root, contract); const snap = diffSnapshot(root);
+      const state = readState(root, contract); const snap = diffSnapshot(root, { excludePaths: runtimeArtifactExcludes(root, contract) });
       state.lastGateResult = { gate, status: details.status === "pass" ? "pass" : "fail", at: new Date().toISOString(), diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles, source: "workflow_gate" };
       if (details.status === "pass") state.checkpoint = { at: new Date().toISOString(), mode: "gate", diffHash: snap.diffHash, dirtyFiles: snap.dirtyFiles };
       writeState(root, contract, state);
@@ -182,12 +182,12 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: "workflow_review_packet",
     label: "Workflow Review Packet",
-    description: "Return a compact reviewer/oracle handoff packet. Does not launch subagents.",
-    promptSnippet: "Use when trusted review is missing or stale; copy the packet to reviewer/oracle, then import accepted evidence with workflow_import_acceptance.",
-    parameters: Type.Object({ cwd: Type.Optional(Type.String()) }),
+    description: "Create a compact reviewer/oracle handoff packet and a single-use review request for explicit files.",
+    promptSnippet: "Use when trusted review is missing or stale. Pass explicit files and mode so the packet creates a pending review request, then import accepted evidence with workflow_import_review_evidence.",
+    parameters: Type.Object({ cwd: Type.Optional(Type.String()), files: Type.Optional(Type.Array(Type.String({ description: "Explicit repo-local files expected in the review evidence" }))), mode: Type.Optional(StringEnum(["commit", "slice", "present"], { description: "Review request mode; default commit" })) }),
     async execute(_toolCallId, params) {
       const root = repoRoot(cwdFrom(params.cwd));
-      const details = reviewPacketDetails(root);
+      const details = reviewPacketDetails(root, { files: params.files, mode: params.mode });
       return textResult(details.packet, details);
     },
   });
@@ -206,14 +206,14 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "workflow_import_acceptance",
-    label: "Workflow Import Acceptance",
-    description: "Import a pi-subagents v0.26 reviewer/oracle acceptance artifact as trusted review evidence only when fenced acceptance, provenance, and current diff hash validate.",
-    promptSnippet: "Prefer this for reviewer/oracle subagent results that used pi-subagents acceptance gates. Do not use manual OK_TO_COMMIT prose as trusted evidence.",
-    parameters: Type.Object({ cwd: Type.Optional(Type.String()), artifactPath: Type.Optional(Type.String({ description: "Repo-local JSON/text artifact path from pi-subagents status/result" })), result: Type.Optional(Type.Any({ description: "Raw status/result object to validate instead of reading artifactPath" })), verdict: Type.Optional(StringEnum(["OK_TO_COMMIT", "OK_TO_MARK_DONE", "OK_TO_MARK_FIXED", "OK_TO_PRESENT"])) }),
+    name: "workflow_import_review_evidence",
+    label: "Workflow Import Review Evidence",
+    description: "Import Workflow Watcher review evidence from a repo-local Markdown/text artifact with one workflow-review-evidence JSON fence.",
+    promptSnippet: "Use for reviewer/oracle evidence produced for a pending workflow review request. Manual prose and pi-subagents acceptance reports are not trusted evidence.",
+    parameters: Type.Object({ cwd: Type.Optional(Type.String()), artifactPath: Type.String({ description: "Repo-local Markdown/text artifact path containing one workflow-review-evidence fenced JSON block" }) }),
     async execute(_toolCallId, params) {
       const root = repoRoot(cwdFrom(params.cwd));
-      return importAcceptanceEvidence(root, params as Record<string, unknown>);
+      return importReviewEvidence(root, params as Record<string, unknown>);
     },
   });
 }
