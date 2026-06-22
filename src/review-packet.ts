@@ -81,7 +81,7 @@ function reviewEvidenceTemplate(root: string, request: ReviewRequest): string {
     reviewedDiffHash: request.diffHash,
     reviewedAt: new Date().toISOString(),
     reviewedFiles: request.expectedFiles,
-    reviewer: { role: "reviewer|oracle", name: "", source: "pi-subagents", runId: "<pi-subagents-run-id>", attestation: REVIEWER_ATTESTATION },
+    reviewer: { role: "reviewer|oracle", name: "", source: "pi-subagents", runId: "<pi-subagents-run-id>", artifactPath: "<absolute-pi-subagents-output-artifact-path>", attestation: REVIEWER_ATTESTATION },
     verdict: request.allowedVerdicts[0],
     criteria: [{ id: "scope", status: "satisfied", evidence: "Reviewed expected files for this request." }],
     verification: [],

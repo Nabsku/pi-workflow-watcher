@@ -115,6 +115,9 @@ assert(beforeEvidence.reason?.includes("missing current trusted review verdict")
 const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: ["src/app.ts"], mode: "commit" }) as { content: Array<{ text: string }>; details: { requestError?: string; request?: { id: string; repo: string; diffHash: string; expectedFiles: string[]; allowedVerdicts: string[] } } };
 assert(!packet.details.requestError && packet.details.request, `review packet should create request: ${packet.details.requestError ?? ""}`);
 const request = packet.details.request;
+const reviewerArtifact = join(root, "..", "subagent-artifacts", "e2e-run-1_output.md");
+mkdirSync(join(root, "..", "subagent-artifacts"), { recursive: true });
+writeFileSync(reviewerArtifact, "pi-subagents reviewer run e2e-run-1\n");
 const reviewedEvidence = {
   schema: "pi-workflow-review-evidence/v1",
   reviewRequestId: request.id,
@@ -122,7 +125,7 @@ const reviewedEvidence = {
   reviewedDiffHash: request.diffHash,
   reviewedAt: new Date().toISOString(),
   reviewedFiles: request.expectedFiles,
-  reviewer: { role: "reviewer", name: "e2e", source: "pi-subagents", runId: "e2e-run-1", attestation: REVIEWER_ATTESTATION },
+  reviewer: { role: "reviewer", name: "e2e", source: "pi-subagents", runId: "e2e-run-1", artifactPath: reviewerArtifact, attestation: REVIEWER_ATTESTATION },
   verdict: request.allowedVerdicts[0],
   criteria: [{ id: "e2e", status: "satisfied", evidence: "reviewed current diff" }],
   verification: [],

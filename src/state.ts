@@ -7,7 +7,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import type { AcceptanceImportDetails, AgentToolResult, CheckpointMode, CommandSpec, Confidence, ContractRead, DoctorDetails, EvidenceBundleDetails, EvidenceDetails, EvidenceSource, Finding, GateCommandRun, GateDetails, GateRunStatus, GateSpec, LedgerEvent, NoteDetails, PlanInference, ProgressDetails, ReviewPacketDetails, Severity, WatchDetails, WatchMode, WatchVerbosity, WhyDetails, WorkflowContract, WorkflowState, WorkflowUi, WorkflowUiContext } from "./types.ts";
 import { textResult } from "./result.ts";
-import { git, dirtyFiles, repoRoot, normalizeDirtyPath, repoLocalPath } from "./fs-git.ts";
+import { git, dirtyFiles, repoRoot, normalizeDirtyPath, dirtyEntryPaths, repoLocalPath } from "./fs-git.ts";
 
 export function runsDirResolution(root: string, contract: WorkflowContract | null): { path: string; valid: boolean; error?: string } {
   try { return { path: repoLocalPath(root, contract?.artifacts?.runsDir, ".pi/runs"), valid: true }; }
@@ -50,6 +50,13 @@ function untrackedFiles(root: string, rel: string, excludePaths: string[]): stri
   return out ? out.split("\n").map((line) => line.trimEnd().replace(/\\/g, "/")).filter((file) => file && !pathIsExcluded(file, excludePaths)).sort() : [];
 }
 
+export function dedicatedRuntimeDir(root: string, dir: string): boolean {
+  const rel = relative(root, dir).replace(/\\/g, "/");
+  if (rel === ".pi/runs" || rel.startsWith(".pi/")) return true;
+  const segments = rel.split("/").filter(Boolean).map((segment) => segment.toLowerCase());
+  return segments.some((segment) => segment === "runs" || segment === "artifacts" || segment === "workflow-artifacts" || segment === "workflow");
+}
+
 function pathInsideDir(root: string, path: string, dir: string): boolean {
   const rel = relative(resolve(root, dir), resolve(root, path));
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
@@ -76,10 +83,9 @@ function existingWatcherArtifacts(dir: string): string[] {
 export function runtimeArtifactExcludes(root: string, contract: WorkflowContract | null, extraPaths: string[] = []): string[] {
   const configured = runsDirResolution(root, contract);
   const defaultRunsDir = join(root, ".pi/runs");
-  const rel = configured.valid ? relative(root, configured.path).replace(/\\/g, "/") : "";
-  const configuredIsRuntime = configured.valid && (rel === ".pi/runs" || rel.startsWith(".pi/"));
+  const configuredIsRuntime = configured.valid && dedicatedRuntimeDir(root, configured.path);
   const runDirs = configuredIsRuntime && configured.path !== defaultRunsDir ? [configured.path, defaultRunsDir] : [defaultRunsDir];
-  return normalizedExcludePaths(root, [...runDirs.flatMap(existingWatcherArtifacts), ...importedRuntimeArtifactPaths(root, contract, runDirs), join(root, ".pi/tasks"), ...extraPaths]);
+  return normalizedExcludePaths(root, [...runDirs, ...runDirs.flatMap(existingWatcherArtifacts), ...importedRuntimeArtifactPaths(root, contract, runDirs), join(root, ".pi/tasks"), ...extraPaths]);
 }
 
 export function diffSnapshot(root: string, options: { excludePaths?: string[] } = {}): { diffHash: string; dirtyFiles: string[] } {
@@ -87,7 +93,8 @@ export function diffSnapshot(root: string, options: { excludePaths?: string[] } 
   const dirty: string[] = [];
   for (const entry of dirtyFiles(root)) {
     const rel = normalizeDirtyPath(entry);
-    if (pathIsExcluded(rel, excluded)) continue;
+    const paths = dirtyEntryPaths(entry);
+    if (paths.length > 0 && paths.every((path) => pathIsExcluded(path, excluded))) continue;
     if (entry.trimStart().startsWith("??")) {
       const files = untrackedFiles(root, rel, excluded);
       if (files.length) dirty.push(...files.map((file) => `?? ${file}`));

@@ -145,6 +145,13 @@ function reviewRequestFixture(root: string, overrides: Partial<ReviewRequest> = 
   };
 }
 
+function reviewerArtifact(root: string, runId = "smoke-run-1"): string {
+  const dir = join(root, "..", "subagent-artifacts");
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `${runId}_output.md`);
+  writeFileSync(path, `pi-subagents reviewer run ${runId}\n`, "utf8");
+  return path;
+}
 function reviewEvidenceFixture(root: string, overrides: Partial<ReviewEvidence> = {}): ReviewEvidence {
   return {
     schema: "pi-workflow-review-evidence/v1",
@@ -153,7 +160,7 @@ function reviewEvidenceFixture(root: string, overrides: Partial<ReviewEvidence> 
     reviewedDiffHash: "diff-smoke",
     reviewedAt: "2026-06-19T00:00:00.000Z",
     reviewedFiles: ["README.md", "src/app.ts"],
-    reviewer: { role: "reviewer", name: "smoke", source: "pi-subagents", runId: "smoke-run-1", attestation: REVIEWER_ATTESTATION },
+    reviewer: { role: "reviewer", name: "smoke", source: "pi-subagents", runId: "smoke-run-1", artifactPath: reviewerArtifact(root), attestation: REVIEWER_ATTESTATION },
     verdict: "OK_TO_COMMIT",
     criteria: [{ id: "scope", status: "satisfied", evidence: "reviewed expected files" }],
     verification: [],
@@ -488,6 +495,40 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   writeFileSync(join(root, "src/review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
   const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: "src/review.md" }) as { details: { accepted: boolean; error?: string } };
   assert(result.details.accepted === false && result.details.error?.includes("current review scope"), "broad runsDir artifact path should not hide extra dirty source files");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract({ artifacts: { plansDir: ".pi/plans", runsDir: "runs", agentInstructions: "AGENTS.md" } }));
+  writeFileSync(join(root, "file.txt"), "one\n");
+  git(["add", "."], root);
+  git(["commit", "-m", "baseline"], root);
+  writeFileSync(join(root, "file.txt"), "two\n");
+  const diffHash = fixtureDiffHash(root);
+  writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["file.txt"] }));
+  const evidence = reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] });
+  mkdirSync(join(root, "runs"), { recursive: true });
+  writeFileSync(join(root, "runs/review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
+  const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: "runs/review.md" }) as { details: { accepted: boolean; error?: string } };
+  assert(result.details.accepted === true, `configured dedicated runsDir artifact should be excluded during import: ${result.details.error ?? ""}`);
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract());
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src/app.ts"), "export const value = 1;\n");
+  git(["add", "."], root);
+  git(["commit", "-m", "baseline"], root);
+  mkdirSync(join(root, ".pi/runs"), { recursive: true });
+  git(["mv", "src/app.ts", ".pi/runs/app.ts"], root);
+  const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: ["src/app.ts"] }) as { details: { touchedFiles: string[]; request?: { diffHash: string; expectedFiles: string[] }; requestError?: string } };
+  assert(packet.details.touchedFiles.includes("src/app.ts"), "rename into excluded runtime dir should keep source path in review scope");
+  assert(packet.details.request && !packet.details.requestError, "rename into excluded runtime dir should allow review request for source path");
+  const evidence = reviewEvidenceFixture(root, { reviewRequestId: (packet.details.request as { id?: string }).id, reviewedDiffHash: packet.details.request.diffHash, reviewedFiles: packet.details.request.expectedFiles });
+  writeFileSync(join(root, ".pi/runs/review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(evidence)}\n\`\`\`\n`);
+  const result = await tool("workflow_import_review_evidence").execute("accept", { cwd: root, artifactPath: ".pi/runs/review.md" }) as { details: { accepted: boolean; error?: string } };
+  assert(result.details.accepted === true, `rename into runtime dir should import for reviewed source scope: ${result.details.error ?? ""}`);
 }
 
 {

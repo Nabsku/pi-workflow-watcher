@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { readContract, isObject } from "./contract.ts";
-import { diffSnapshot, readState, runtimeArtifactExcludes, runsDir, runsDirResolution, stateFile, watcherLog, writeState } from "./state.ts";
+import { dedicatedRuntimeDir, diffSnapshot, readState, runtimeArtifactExcludes, runsDir, runsDirResolution, stateFile, watcherLog, writeState } from "./state.ts";
 import { dirtyEntryPaths } from "./fs-git.ts";
 import { textResult } from "./result.ts";
 import { appendLedgerEvent } from "./guard-logging.ts";
@@ -108,13 +108,24 @@ export function validateReviewCriteria(criteria: unknown): { ok: boolean; error?
   return { ok: true };
 }
 
-export function validateReviewerProvenance(reviewer: unknown): { ok: boolean; error?: string } {
+export function validateReviewerProvenance(reviewer: unknown, root?: string): { ok: boolean; error?: string } {
   if (!isObject(reviewer)) return { ok: false, error: "reviewer provenance is required" };
   const role = typeof reviewer.role === "string" ? reviewer.role : "";
   if (role !== "reviewer" && role !== "oracle") return { ok: false, error: "reviewer.role must be reviewer or oracle" };
   if (reviewer.source !== "pi-subagents") return { ok: false, error: "reviewer.source must be pi-subagents" };
   if (typeof reviewer.runId !== "string" || reviewer.runId.trim().length < 6 || reviewer.runId.includes("<")) return { ok: false, error: "reviewer.runId provenance is required" };
   if (reviewer.attestation !== REVIEWER_ATTESTATION) return { ok: false, error: "reviewer attestation is required" };
+  if (root) {
+    if (typeof reviewer.artifactPath !== "string" || reviewer.artifactPath.trim() === "") return { ok: false, error: "reviewer artifactPath provenance is required" };
+    const artifact = resolve(reviewer.artifactPath);
+    const rel = relative(root, artifact);
+    if (!rel.startsWith("..") && !isAbsolute(rel)) return { ok: false, error: "reviewer artifactPath must be outside the repo" };
+    if (!artifact.includes("subagent-artifacts")) return { ok: false, error: "reviewer artifactPath must point to a pi-subagents artifact" };
+    try {
+      const text = readFileSync(artifact, "utf8");
+      if (!text.includes(reviewer.runId)) return { ok: false, error: "reviewer artifactPath does not match runId" };
+    } catch { return { ok: false, error: "reviewer artifactPath could not be read" }; }
+  }
   return { ok: true };
 }
 
@@ -126,7 +137,7 @@ export function validateReviewEvidenceForRequest(root: string, evidence: ReviewE
   if (!files.ok) return { ok: false, error: files.error };
   if (!request.allowedVerdicts.includes(evidence.verdict)) return { ok: false, error: `verdict ${evidence.verdict} is not allowed for request mode ${request.mode}` };
   const criteria = validateReviewCriteria(evidence.criteria);
-  const provenance = validateReviewerProvenance(evidence.reviewer);
+  const provenance = validateReviewerProvenance(evidence.reviewer, root);
   if (!provenance.ok) return provenance;
   if (!criteria.ok) return criteria;
   return { ok: true, reviewedFiles: files.reviewed };
@@ -154,8 +165,7 @@ function safeArtifactRuntimeDirs(root: string, contract: WorkflowContract | null
   const dirs = [join(root, ".pi/runs")];
   const configured = runsDirResolution(root, contract);
   if (configured.valid) {
-    const rel = relative(root, configured.path).replace(/\\/g, "/");
-    if ((rel === ".pi/runs" || rel.startsWith(".pi/")) && !dirs.includes(configured.path)) dirs.push(configured.path);
+    if (dedicatedRuntimeDir(root, configured.path) && !dirs.includes(configured.path)) dirs.push(configured.path);
   }
   return dirs;
 }
@@ -166,8 +176,13 @@ function importExcludePaths(root: string, contract: WorkflowContract | null, art
   return runtimeArtifactExcludes(root, contract, artifactIsRuntime ? [artifactPath] : []);
 }
 
-function requestScopeMatchesCurrentDiff(root: string, request: ReviewRequest, snap: { dirtyFiles: string[] }): { ok: boolean; error?: string } {
-  const current = normalizeReviewFiles(root, snap.dirtyFiles.flatMap(dirtyEntryPaths));
+function reviewPathExcluded(path: string, excludePaths: string[]): boolean {
+  const rel = path.replace(/\\/g, "/").replace(/\/$/, "");
+  return excludePaths.some((excluded) => rel === excluded || rel.startsWith(`${excluded.replace(/\/$/, "")}/`));
+}
+
+function requestScopeMatchesCurrentDiff(root: string, request: ReviewRequest, snap: { dirtyFiles: string[] }, excludePaths: string[]): { ok: boolean; error?: string } {
+  const current = normalizeReviewFiles(root, snap.dirtyFiles.flatMap(dirtyEntryPaths).filter((path) => !reviewPathExcluded(path, excludePaths)));
   if (current.error) return { ok: false, error: current.error };
   const scope = reviewFilesMatch(root, current.files ?? [], request.expectedFiles);
   if (!scope.ok) return { ok: false, error: `review request expectedFiles do not match current review scope: ${(scope.error ?? "scope mismatch").replace("reviewedFiles", "currentFiles")}` };
@@ -186,7 +201,7 @@ export function importReviewEvidence(root: string, params: Record<string, unknow
   if (resolve(request.repo) !== resolve(root)) return reviewEvidenceImportError(root, "review request repo does not match current repo root", loaded.artifactPath);
   const excluded = importExcludePaths(root, contract, loaded.artifactPath);
   const snap = diffSnapshot(root, { excludePaths: excluded });
-  const scope = requestScopeMatchesCurrentDiff(root, request, snap);
+  const scope = requestScopeMatchesCurrentDiff(root, request, snap, excluded);
   if (!scope.ok) return reviewEvidenceImportError(root, scope.error ?? "review request scope does not match current diff", loaded.artifactPath);
   if (parsed.evidence.reviewedDiffHash !== snap.diffHash) return reviewEvidenceImportError(root, "reviewedDiffHash does not match current repo diffHash", loaded.artifactPath);
   const validation = validateReviewEvidenceForRequest(root, parsed.evidence, request);
