@@ -454,10 +454,41 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
   await commands.workflow.handler("review-prompt src/secure/auth.ts src/secure/nested/auth.ts", { cwd: root });
   assert(messages[0]?.content.includes("# Workflow review packet") && messages[0]?.content.includes("src/secure/auth.ts"), "/workflow review-prompt default mode should preserve first file");
   messages.length = 0;
+  await commands.workflow.handler("review-prompt", { cwd: root });
+  assert(messages[0]?.content.includes("# Workflow review packet") && messages[0]?.content.includes("src/secure/auth.ts") && messages[0]?.content.includes("not created: files must explicitly list the review scope"), "/workflow review-prompt without files should still render packet guidance");
+  messages.length = 0;
   await commands.workflow.handler("why commit", { cwd: root });
   assert(messages[0]?.content.includes("# Workflow why") && messages[0]?.content.includes("trusted reviewer/oracle evidence"), "/workflow why commit should explain missing commit evidence");
   const whyEdit = await tool("workflow_why").execute("why", { cwd: root, target: "edit", path: "src/secure/auth.ts" }) as { content: Array<{ text: string }>; details: Record<string, unknown> };
   assert(whyEdit.content[0].text.includes("source: edit guard"), "workflow_why edit should explain edit guard source");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract({ artifacts: { plansDir: ".pi/plans", runsDir: "src", agentInstructions: "AGENTS.md" } }));
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, "src/app.ts"), "export const value = 1;\n");
+  git(["add", "."], root);
+  git(["commit", "-m", "baseline"], root);
+  writeFileSync(join(root, "src/app.ts"), "export const value = 2;\n");
+  const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: ["src/app.ts"] }) as { details: { touchedFiles: string[]; excludedFiles?: string[]; request?: { id?: string } } };
+  assert(packet.details.touchedFiles.includes("src/app.ts"), "broad runsDir must not exclude source files from review scope");
+  assert(!packet.details.excludedFiles?.includes("src/app.ts"), "source file should not be reported as runtime artifact");
+  assert(packet.details.request?.id, "source review request should still be created with broad runsDir config");
+}
+
+{
+  const root = repo();
+  writeContract(root, validContract({ artifacts: { plansDir: ".pi/plans", runsDir: ".pi", agentInstructions: "AGENTS.md" } }));
+  mkdirSync(join(root, ".pi/plans"), { recursive: true });
+  writeFileSync(join(root, ".pi/plans/plan.md"), "# Plan\n- [ ] task\n");
+  git(["add", "."], root);
+  git(["commit", "-m", "baseline"], root);
+  writeFileSync(join(root, ".pi/plans/plan.md"), "# Plan\n- [x] task\n");
+  const packet = await tool("workflow_review_packet").execute("packet", { cwd: root, files: [".pi/plans/plan.md"] }) as { details: { touchedFiles: string[]; excludedFiles?: string[]; request?: { id?: string } } };
+  assert(packet.details.touchedFiles.includes(".pi/plans/plan.md"), "broad .pi runsDir must not exclude plan files from review scope");
+  assert(!packet.details.excludedFiles?.includes(".pi/plans/plan.md"), "plan file should not be reported as runtime artifact");
+  assert(packet.details.request?.id, "plan review request should still be created with broad .pi runsDir config");
 }
 
 {

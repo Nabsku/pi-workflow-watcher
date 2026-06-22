@@ -45,8 +45,23 @@ function pathIsExcluded(rel: string, excludePaths: string[]): boolean {
   return excludePaths.some((excluded) => normalized === excluded || normalized.startsWith(`${excluded}/`));
 }
 
+function existingWatcherArtifacts(dir: string): string[] {
+  const artifacts = [join(dir, "workflow-watcher.log"), join(dir, "workflow-watcher.jsonl"), join(dir, "workflow-state.json")];
+  const reviewRequests = join(dir, "review-requests");
+  if (existsSync(reviewRequests)) artifacts.push(reviewRequests);
+  try {
+    for (const name of readdirSync(dir)) {
+      if (/^workflow-evidence-bundle-.*\.md$/.test(name) || /^workflow-review-evidence-.*\.md$/.test(name)) artifacts.push(join(dir, name));
+    }
+  } catch { /* runsDir may not exist yet */ }
+  return artifacts;
+}
+
 export function runtimeArtifactExcludes(root: string, contract: WorkflowContract | null, extraPaths: string[] = []): string[] {
-  return normalizedExcludePaths(root, [runsDir(root, contract), ".pi/runs", ".pi/tasks", ...extraPaths]);
+  const configuredRunsDir = runsDir(root, contract);
+  const defaultRunsDir = join(root, ".pi/runs");
+  const runDirs = configuredRunsDir === defaultRunsDir ? [configuredRunsDir] : [configuredRunsDir, defaultRunsDir];
+  return normalizedExcludePaths(root, [...runDirs.flatMap(existingWatcherArtifacts), join(root, ".pi/tasks"), ...extraPaths]);
 }
 
 export function diffSnapshot(root: string, options: { excludePaths?: string[] } = {}): { diffHash: string; dirtyFiles: string[] } {

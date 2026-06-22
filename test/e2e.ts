@@ -128,10 +128,10 @@ const reviewedEvidence = {
   residualRisks: [],
 };
 mkdirSync(join(root, ".pi/runs"), { recursive: true });
-writeFileSync(join(root, ".pi/runs/review.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(reviewedEvidence)}\n\`\`\`\n`);
+writeFileSync(join(root, ".pi/runs/workflow-review-evidence-e2e.md"), `Review clean.\n\n\`\`\`workflow-review-evidence\n${JSON.stringify(reviewedEvidence)}\n\`\`\`\n`);
 const importResult = await tool("workflow_import_review_evidence").execute("accept", {
   cwd: root,
-  artifactPath: ".pi/runs/review.md",
+  artifactPath: ".pi/runs/workflow-review-evidence-e2e.md",
 }) as { details: { accepted: boolean; error?: string } };
 assert(importResult.details.accepted === true, `trusted review evidence should import for current diff: ${importResult.details.error ?? ""}`);
 
