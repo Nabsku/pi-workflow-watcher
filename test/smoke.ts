@@ -1531,7 +1531,7 @@ assert(hooks.turn_end?.length, "turn_end UI hook not registered");
     writeReviewRequest(root, reviewRequestFixture(root, { diffHash, expectedFiles: ["other.txt"] }));
     writeReviewEvidenceArtifact(root, reviewEvidenceFixture(root, { reviewedDiffHash: diffHash, reviewedFiles: ["file.txt"] }), "");
     const result = await importReviewEvidenceArtifact(root);
-    assert(result.details.accepted === false && result.details.error?.includes("reviewedFiles"), "reviewedFiles mismatch must reject");
+    assert(result.details.accepted === false && result.details.error?.includes("current review scope"), "request scope mismatch must reject before import trust");
   }
   {
     const { root, diffHash } = makeFixture();
